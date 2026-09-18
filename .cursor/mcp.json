@@ -1,12 +1,14 @@
 {
   "mcpServers": {
-    "yandex-direct": {
+    "yandex-direct-agent": {
       "command": "python",
       "args": [
         "C:\\Users\\Дмитрий\\Desktop\\yandex_direct_agent\\server.py"
       ],
+      "cwd": "C:\\Users\\Дмитрий\\Desktop\\yandex_direct_agent",
       "env": {
-        "YANDEX_DIRECT_TOKEN": "y0__wgBEMuw0YcHGOPzSSCZ9-iIGTCV3rObCOouthdxip3ODiGWR_CuVNj6F53B"
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1"
       }
     }
   }

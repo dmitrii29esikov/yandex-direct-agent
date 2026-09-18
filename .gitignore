@@ -1,4 +1,5 @@
-.env  
-__pycache__/  
-*.pyc  
-venv/ 
+.env
+__pycache__/
+*.pyc
+venv/
+data/snapshots/*.json
