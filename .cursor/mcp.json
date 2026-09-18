@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "yandex-direct": {
+      "command": "python",
+      "args": [
+        "C:\\Users\\Дмитрий\\Desktop\\yandex_direct_agent\\server.py"
+      ],
+      "env": {
+        "YANDEX_DIRECT_TOKEN": "y0__wgBEMuw0YcHGOPzSSCZ9-iIGTCV3rObCOouthdxip3ODiGWR_CuVNj6F53B"
+      }
+    }
+  }
+}
