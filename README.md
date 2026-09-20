@@ -11,8 +11,9 @@ Claude Desktop) или командную строку.
 - **Яндекс Тег Менеджер (YTM)** — теги, триггеры, переменные, аудит контейнера, снимки состояния и diff изменений.
 - **Анализ сайтов** — формы, счётчики Метрики/GA/YTM, `dataLayer.push`, inline-обработчики, перехват сетевых запросов через Playwright (работает с SPA).
 - **Обогащение данных** — подстановка имён вместо голых ID (кампании, счётчики, цели).
+- **Аудит выгрузок Директ Коммандера** — чтение XLSX/XLS выгрузок, проверка по правилам Директа, отчёты в Excel и CSV.
 
-## Инструменты (17)
+## Инструменты (18)
 
 ### Яндекс.Директ
 | Инструмент | Что делает |
@@ -20,6 +21,7 @@ Claude Desktop) или командную строку.
 | `get_campaigns` | Список кампаний с параметрами |
 | `check_api_connection` | Проверка подключения к API Директа |
 | `get_campaign_stats` | Отчёты: показы, клики, CTR, CPC, конверсии, CPA |
+| `audit_direct_commander_files` | Аудит XLSX/XLS выгрузок из Директ Коммандера |
 
 ### Яндекс.Метрика
 | Инструмент | Что делает |
@@ -55,6 +57,53 @@ Claude Desktop) или командную строку.
 | `list_snapshots` | Список сохранённых снимков |
 | `audit_ytm_changes` | Diff текущего состояния с последним снимком |
 
+### Аудит выгрузок Директ Коммандера
+| Инструмент | Что делает |
+|---|---|
+| `audit_direct_commander_files` | Аудит XLSX/XLS выгрузок: чтение всех листов, проверка по правилам Директа, отчёты в Excel и CSV |
+
+**Что проверяет `audit_direct_commander_files`:**
+
+- Пустые обязательные поля (`Доп. объявление группы`, `Название группы`).
+- Некорректное `Доп. объявление группы` (должно быть `-` или `+`).
+- `Номер группы` — только цифры.
+- Ключевые фразы: длина до 4096, слово до 35 символов.
+- Заголовки 1–7: длина до 56, слово до 22.
+- Тексты 1–3: длина до 81, слово до 23, знаков препинания до 15.
+- Отображаемая ссылка: длина до 20, без домена/протокола.
+- Ссылка: обязательно `http://` или `https://`.
+- Быстрые ссылки: до 8 штук, заголовок до 30, описание до 60, без `!`, `?`, `[`, `]`.
+- Уточнения: до 25 штук, каждое до 25 символов.
+- Метки: до 25 символов.
+- Минус-фразы на группу: до 4096 символов, одна фраза — до 7 слов.
+- Минус-фразы на кампанию: до 20000 символов.
+
+**Что выводит `audit_direct_commander_files`:**
+
+Один Excel-файл `audit_report.xlsx` с листами:
+
+| Лист | Что внутри |
+|---|---|
+| `Оглавление` | Описание всех разделов отчёта |
+| `Сводка` | Ключевые цифры: файлы, объявления, группы, проблемы |
+| `1_Аудит_проблемы` | Все найденные проблемы с координатами |
+| `2_Паспорт_кампаний` | Паспорт кампании |
+| `3_Объявления` | Полная выгрузка всех объявлений |
+| `4_Изображения` | Анализ изображений |
+| `5_Фразы` | Ключевые фразы, аудитории, автотаргетинг |
+| `6_Минус_фразы` | Минус-фразы кампании и групп |
+| `Файлы_и_листы` | Прочитанные листы |
+| `Метаданные` | Метаданные кампаний |
+| `Справочник_Регионы` | Имена регионов |
+| `Справочник_Поля` | Словарь значений полей |
+
+Плюс 4 CSV:
+
+- `audit_report_issues.csv` — проблемы
+- `audit_report_ads.csv` — объявления
+- `audit_report_phrases.csv` — фразы
+- `audit_report_minus.csv` — минус-фразы
+
 ## Установка
 
 ```bash
@@ -62,91 +111,177 @@ git clone https://github.com/dmitrii29esikov/yandex-direct-agent.git
 cd yandex-direct-agent
 pip install -r requirements.txt
 python -m playwright install chromium
-```
-
----
-
 ================================================================
 ДОПОЛНЕНИЕ ОТ 20.09.2026 — НАЙДЕННЫЕ ОШИБКИ И ИСПРАВЛЕНИЯ
 ================================================================
 
 НАЙДЕННЫЕ ОШИБКИ
-----------------
-1. Кириллица в пути проекта.
-   Проект лежал в C:\Users\Дмитрий\Desktop\yandex_direct_agent.
-   Из-за русских букв Chatbox и Cursor передавали Python путь в виде
-   кракозябр (╨Ф╨╝╨╕╤В╤А╨╕╨╣) — файл server.py "не находился".
 
-2. Дубликат папки проекта.
-   Появились две копии: на Рабочем столе и в C:\.
-   Программы читали разные версии файлов — правки не срабатывали.
+Кириллица в пути проекта.
+Проект лежал в C:\Users\Дмитрий\Desktop\yandex_direct_agent.
+Из-за русских букв Chatbox и Cursor передавали Python путь в виде
+кракозябр (╨Ф╨╝╨╕╤В╤А╨╕╨╣) — файл server.py "не находился".
 
-3. Главный баг: пустой список инструментов (tools: []).
-   В файлах tools/*.py был импорт `from server import mcp`.
-   Python при этом создавал ВТОРОЙ экземпляр FastMCP — инструменты
-   вешались на него, а mcp.run() запускал ПЕРВЫЙ (пустой) экземпляр.
-   Результат: сервер отвечает, но "17 tools" не появляется.
-   Именно поэтому в Cursor сервер работал, а инструменты не активировались.
+Дубликат папки проекта.
+Появились две копии: на Рабочем столе и в C:.
+Программы читали разные версии файлов — правки не срабатывали.
 
-4. start_mcp.bat содержал старый путь + BOM + кириллицу.
-   Chatbox запускал не тот server.py.
+Главный баг: пустой список инструментов (tools: []).
+В файлах tools/*.py был импорт from server import mcp.
+Python при этом создавал ВТОРОЙ экземпляр FastMCP — инструменты
+вешались на него, а mcp.run() запускал ПЕРВЫЙ (пустой) экземпляр.
+Результат: сервер отвечает, но "17 tools" не появляется.
+Именно поэтому в Cursor сервер работал, а инструменты не активировались.
+
+start_mcp.bat содержал старый путь + BOM + кириллицу.
+Chatbox запускал не тот server.py.
 
 ИСПРАВЛЕНИЯ
------------
-1. Рабочая папка перенесена в C:\yandex_direct_agent (без кириллицы).
-   Старая копия на Рабочем столе удалена.
 
-2. Создан общий модуль mcp_instance.py — единый объект mcp и api_client:
+Рабочая папка перенесена в C:\yandex_direct_agent (без кириллицы).
+Старая копия на Рабочем столе удалена.
 
-       from mcp.server.fastmcp import FastMCP
-       from api_client import YandexDirectAPIClient
+Создан общий модуль mcp_instance.py — единый объект mcp и api_client:
 
-       mcp = FastMCP("YandexDirectPro")
-       api_client = YandexDirectAPIClient()
+from mcp.server.fastmcp import FastMCP
+from api_client import YandexDirectAPIClient
 
-3. server.py переписан — берёт mcp из mcp_instance:
+mcp = FastMCP("YandexDirectPro")
+api_client = YandexDirectAPIClient()
 
-       from mcp_instance import mcp
-       from tools import campaigns, metrica, reports, enrich, tag_manager, site_parser, audit
+server.py переписан — берёт mcp из mcp_instance:
 
-       if __name__ == "__main__":
-           mcp.run()
+from mcp_instance import mcp
+from tools import campaigns, metrica, reports, enrich, tag_manager, site_parser, audit, audit_files
 
-4. Во ВСЕХ файлах tools/*.py первая строка заменена:
-       было:  from server import mcp, api_client
-       стало: from mcp_instance import mcp, api_client
+if name == "main":
+mcp.run()
 
-5. start_mcp.bat пересоздан (ASCII, без BOM, правильный путь):
+Во ВСЕХ файлах tools/*.py первая строка заменена:
+было: from server import mcp, api_client
+стало: from mcp_instance import mcp, api_client
 
-       @echo off
-       "C:\Program Files\Python314\python.exe" "C:\yandex_direct_agent\server.py"
+start_mcp.bat пересоздан (ASCII, без BOM, правильный путь):
+
+@echo off
+"C:\Program Files\Python314\python.exe" "C:\yandex_direct_agent\server.py"
 
 ИТОГОВЫЕ НАСТРОЙКИ MCP (Chatbox / Cursor)
------------------------------------------
-Name:                  yandex-direct-agent
-Type:                  stdio (Локально)
-Command:               C:\yandex_direct_agent\start_mcp.bat
-Переменные окружения:  пусто
-Ожидаемый результат:   17 tools
+
+Name: yandex-direct-agent
+Type: stdio (Локально)
+Command: C:\yandex_direct_agent\start_mcp.bat
+Переменные окружения: пусто
+Ожидаемый результат: 18 tools
 
 ДИАГНОСТИКА
------------
+
 Проверить количество инструментов:
 
-    "C:\Program Files\Python314\python.exe" -c "from mcp_instance import mcp; from tools import campaigns, metrica, reports, enrich, tag_manager, site_parser, audit; print('tools count:', len(mcp._tool_manager._tools))"
+"C:\Program Files\Python314\python.exe" -c "from mcp_instance import mcp; from tools import campaigns, metrica, reports, enrich, tag_manager, site_parser, audit, audit_files; print('tools count:', len(mcp._tool_manager._tools))"
 
-Ожидаем: tools count: 17
+Ожидаем: tools count: 18
 
 Проверить импорты в файлах:
 
-    findstr /n "mcp_instance" C:\yandex_direct_agent\server.py C:\yandex_direct_agent\tools\*.py
+findstr /n "mcp_instance" C:\yandex_direct_agent\server.py C:\yandex_direct_agent\tools*.py
 
 В каждом файле должна быть строка с mcp_instance.
 
 ПРАВИЛА НА БУДУЩЕЕ
-------------------
-- Рабочая папка только одна: C:\yandex_direct_agent. Копии не создавать.
-- mcp_instance.py — ядро фикса, не удалять.
-- Любые новые tools/*.py импортируют mcp и api_client ТОЛЬКО из mcp_instance.
-- Токены и ключи — только в .env, в этом README не писать.
-- Новый чат начинать фразой: "Читай PROJECT.md и README.md в C:\yandex_direct_agent"
+
+Рабочая папка только одна: C:\yandex_direct_agent. Копии не создавать.
+
+mcp_instance.py — ядро фикса, не удалять.
+
+Любые новые tools/*.py импортируют mcp и api_client ТОЛЬКО из mcp_instance.
+
+Токены и ключи — только в .env, в этом README не писать.
+
+Новый чат начинать фразой: "Читай PROJECT.md и README.md в C:\yandex_direct_agent"
+
+
+================================================================
+ДОПОЛНЕНИЕ ОТ 21.09.2026 — НОВЫЙ ИНСТРУМЕНТ И ИСПРАВЛЕНИЯ
+================================================================
+
+НОВЫЙ ИНСТРУМЕНТ
+----------------
+audit_direct_commander_files — аудит выгрузок Директ Коммандера (XLSX/XLS).
+
+Файл:        tools/audit_files.py
+Импорт:      from mcp_instance import mcp
+Декоратор:   @mcp.tool()
+Функция:     audit_direct_commander_files(path, json_output=False)
+Зависимости: pandas, openpyxl, xlrd (добавлены в requirements.txt)
+Подключён:   server.py → from tools import ..., audit_files
+
+Результат: инструментов стало 18 (было 17).
+
+ЧТО ДЕЛАЕТ
+----------
+- Читает ВСЕ листы XLSX/XLS: Тексты, Регионы, Словарь значений полей.
+- Автоматически находит шапку (в т.ч. двухуровневую).
+- Парсит метаданные кампании: тип, № заказа, валюта, объект продвижения.
+- Расшифровывает регионы через лист «Регионы».
+- Проверяет по правилам Директа: длины, слова, знаки препинания, URL,
+  быстрые ссылки, уточнения, метки, минус-фразы.
+- Разбирает минус-фразы кампании (из метаданных) и групп (из колонки).
+- Разбирает ключевые фразы, аудитории (audience:...) и автотаргетинг (---).
+- Сохраняет отчёт в audit_report.xlsx (12 листов) + 4 CSV.
+
+ЛИСТЫ ОТЧЁТА
+------------
+Оглавление, Сводка, 1_Аудит_проблемы, 2_Паспорт_кампаний,
+3_Объявления, 4_Изображения, 5_Фразы, 6_Минус_фразы,
+Файлы_и_листы, Метаданные, Справочник_Регионы, Справочник_Поля.
+
+CSV ОТЧЁТЫ
+----------
+audit_report_issues.csv  — проблемы
+audit_report_ads.csv     — объявления
+audit_report_phrases.csv — фразы
+audit_report_minus.csv   — минус-фразы
+
+ИСПРАВЛЕНИЯ ОТ 21.09.2026
+-------------------------
+1. Исправлен блок «Длина» в _build_columns:
+   - Колонки «заголовок 1», «заголовок 2», «текст» больше не попадают в отчёт.
+   - Добавлен флаг inside_length_block.
+
+2. Убрана ложная проверка «Дубли минус-фраз» из _check_row:
+   - Она срабатывала на каждой строке группы (2104 ложных предупреждения).
+
+3. Исправлена кодировка вывода JSON:
+   - В main() добавлено:
+         import sys
+         sys.stdout.reconfigure(encoding="utf-8")
+   - Иначе Python падал с UnicodeEncodeError на cp1251.
+
+4. Исправлены лимиты быстрых ссылок:
+   - QUICK_MAX_ITEMS: 4 → 8 (по справке Директа).
+   - Убрана проверка QUICK_TITLE_TOTAL (суммарного лимита в справке нет).
+   - Добавлена проверка запрещённых символов `!`, `?`, `[`, `]`.
+
+5. Убрана ложная проверка duplicate_ad_id:
+   - Повтор ID объявления на разных фразах — норма для Директ Коммандера.
+
+6. Добавлены листы 5_Фразы и 6_Минус_фразы в audit_report.xlsx.
+7. Добавлены CSV: audit_report_phrases.csv, audit_report_minus.csv.
+
+УДАЛЕНИЕ СТАРОЙ ПАПКИ
+---------------------
+Папка C:\yandex_agent (без audit_files.py и без start_mcp.bat)
+удалена командой: rmdir /S /Q C:\yandex_agent
+
+РЕЗУЛЬТАТ АУДИТА (образец data/710718813.xlsx)
+---------------------------------------------
+Файлов: 1 | объявлений: 730 | групп: 16 | проблем: 1458
+(ошибок: 906, предупреждений: 552)
+Уникальных изображений: 95 | регионов в справочнике: 15137
+Всего фраз: 666 | всего минус-фраз: 2349
+
+ИТОГ
+----
+Инструментов: 18.
+Коммиты: fa81e8e, cee5d93 — запушены в GitHub.
