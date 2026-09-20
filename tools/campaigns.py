@@ -1,4 +1,4 @@
-from server import mcp, api_client
+from mcp_instance import mcp, api_client
 
 
 @mcp.tool()

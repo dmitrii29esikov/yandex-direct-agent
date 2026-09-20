@@ -1,11 +1,11 @@
 {
   "mcpServers": {
     "yandex-direct-agent": {
-      "command": "python",
+      "command": "C:/Program Files/Python314/python.exe",
       "args": [
-        "C:\\Users\\Дмитрий\\Desktop\\yandex_direct_agent\\server.py"
+        "C:/yandex_direct_agent/server.py"
       ],
-      "cwd": "C:\\Users\\Дмитрий\\Desktop\\yandex_direct_agent",
+      "cwd": "C:/yandex_direct_agent",
       "env": {
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUTF8": "1"

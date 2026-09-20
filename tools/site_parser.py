@@ -1,4 +1,4 @@
-# tools/site_parser.py
+from mcp_instance import mcp, api_client
 # Parsing HTML sajta: formy, dataLayer, schetchiki, sobytiya.
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
 #

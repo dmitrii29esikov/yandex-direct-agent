@@ -1,4 +1,4 @@
-from server import mcp
+from mcp_instance import mcp, api_client
 import os
 import requests
 from dotenv import load_dotenv

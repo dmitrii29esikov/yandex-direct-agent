@@ -1,4 +1,4 @@
-# tools/audit.py
+from mcp_instance import mcp, api_client
 # Audit izmenenij konfiguratsii YTM.
 # Snimaem "snapshot" (srez sostoyaniya) i sravnivaem ego s predyduschim.
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.

@@ -1,4 +1,4 @@
-# tools/tag_manager.py
+from mcp_instance import mcp, api_client
 # Yandex Tag Manager (YTM) API client.
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
 #

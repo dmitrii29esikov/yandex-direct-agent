@@ -1,4 +1,4 @@
-# tools/reports.py
+from mcp_instance import mcp, api_client
 # Otchety po kampaniyam Yandex Direct (Reports API v5).
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
 
@@ -7,7 +7,7 @@ from datetime import date, timedelta
 
 import requests
 
-from server import mcp, api_client
+from mcp_instance import mcp, api_client
 
 
 # Polya, kotorye tochno est' v CAMPAIGN_PERFORMANCE_REPORT.

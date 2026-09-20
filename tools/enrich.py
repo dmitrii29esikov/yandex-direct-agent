@@ -1,4 +1,4 @@
-# tools/enrich.py
+from mcp_instance import mcp, api_client
 # Obogashchenie dannyh: podstavlyaem nazvaniya vmesto ID.
 # Kampanii (Direct), schetchiki i celi (Metrika).
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
@@ -7,7 +7,7 @@ import os
 import requests
 from dotenv import load_dotenv
 
-from server import mcp, api_client
+from mcp_instance import mcp, api_client
 
 load_dotenv()
 
