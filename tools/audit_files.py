@@ -9,6 +9,7 @@ from collections import Counter
 from typing import Any, Dict, List, Tuple, Optional
 
 import pandas as pd
+from mcp_instance import mcp
 
 LIMITS = {
     "Заголовок 1": 56, "Заголовок 2": 56, "Заголовок 3": 56,
@@ -723,6 +724,26 @@ def main():
         print(f"CSV объявления: {paths['ads_csv']}")
         print(f"CSV фразы: {paths['phrases_csv']}")
         print(f"CSV минус-фразы: {paths['minus_csv']}")
+
+@mcp.tool()
+def audit_direct_commander_files(path: str, json_output: bool = False) -> str:
+    """
+    Аудит выгрузок Яндекс.Директ Коммандера (XLSX/XLS).
+    path — файл или папка с выгрузками.
+    json_output — если True, вернуть JSON.
+    """
+    import json as _json
+    result = audit_path(path)
+    export_report(result)
+    if json_output:
+        return _json.dumps(result, ensure_ascii=False, indent=2, default=str)
+    s = result["summary"]
+    return (
+        f"Файлов: {s['Файлов']} | объявлений: {s['Всего объявлений']} | "
+        f"групп: {s['Всего групп']} | проблем: {s['Всего проблем']} "
+        f"(ошибок: {s['Ошибок']}, предупреждений: {s['Предупреждений']})"
+    )
+
 
 
 if __name__ == "__main__":
