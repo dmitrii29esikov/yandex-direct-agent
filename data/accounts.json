@@ -1,0 +1,22 @@
+{
+  "default": {
+    "title": "Аккаунт по умолчанию (.env)",
+    "direct": {
+      "mode": "token",
+      "token_ref": "default",
+      "client_login": null
+    },
+    "metrica": {
+      "counter_ids": [],
+      "ulogin": null,
+      "token_ref": "default"
+    },
+    "ytm": {
+      "container_ids": [
+        1007795
+      ],
+      "token_ref": "default"
+    },
+    "goals": {}
+  }
+}

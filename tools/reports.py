@@ -31,6 +31,8 @@ ALLOWED_DATE_RANGES = [
     "ALL_TIME", "AUTO",
 ]
 
+import access
+
 REPORTS_URL = "https://api.direct.yandex.com/json/v5/reports"
 
 
@@ -81,6 +83,7 @@ def get_campaign_stats(
     goal_ids: list[int] | None = None,
     cpa_goal_id: int | None = None,
     attribution_model: str | None = None,
+    account: str | None = None,
     max_wait_seconds: int = 120,
 ) -> dict:
     """Statistika kampanij: pokazy, klik, rashod, CTR, CPC, konversii, CPA."""
@@ -137,7 +140,10 @@ def get_campaign_stats(
     if attribution_model:
         params["AttributionModels"] = [attribution_model]
 
-    headers = dict(api_client.headers)
+    try:
+        headers = dict(access.direct(account).headers)
+    except access.AccessError as e:
+        return {"error": str(e)}
     headers.update({
         "processingMode": "auto",
         "skipReportHeader": "true",

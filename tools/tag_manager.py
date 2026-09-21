@@ -1,63 +1,24 @@
-from mcp_instance import mcp, api_client
+from mcp_instance import mcp
 # Yandex Tag Manager (YTM) API client.
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
 #
 # API: https://api.ytm.yandex.net/ytm/management/v1/container/{id}/...
 # Avtorizatsiya: OAuth-token s dostupom "ytm:read".
+#
+# Vazhno: API YTM — TOLKO CHTENIE. Metodov zapisi (POST/PUT/DELETE) v API net,
+# poetomu lyubye "pravki" Tag Managera vozmozhny tolko vruchnuyu v interfejse.
 
-import os
-import requests
-from dotenv import load_dotenv
-
-from server import mcp
-
-load_dotenv()
-
-YTM_BASE = "https://api.ytm.yandex.net/ytm/management/v1"
+import access
 
 
-def _ytm_headers() -> dict | None:
-    """Zagolovki dlya YTM API. None, esli token ne zadan v .env."""
-    token = os.getenv("YANDEX_YTM_TOKEN")
-    if not token:
-        return None
-    return {
-        "Authorization": f"OAuth {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+def _ytm_get(path: str, account: str | None = None) -> dict:
+    """
+    Universal'nyj GET k YTM API.
 
-
-def _ytm_get(path: str) -> dict:
-    """Universal'nyj GET k YTM API."""
-    headers = _ytm_headers()
-    if headers is None:
-        return {"error": "YANDEX_YTM_TOKEN ne zadan v .env"}
-
-    url = f"{YTM_BASE}/{path}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-    except requests.exceptions.RequestException as e:
-        return {"error": str(e)}
-
-    if resp.status_code == 401:
-        return {"error": "401 Unauthorized: prover' token YANDEX_YTM_TOKEN "
-                         "i ego dostup 'ytm:read'"}
-    if resp.status_code == 403:
-        return {"error": "403 Forbidden: u tokena net dostupa k etomu "
-                         "kontejneru"}
-    if resp.status_code == 404:
-        return {"error": f"404 Not Found: {path}"}
-    if resp.status_code == 429:
-        return {"error": "429 Too Many Requests: prevyshen limit "
-                         "5000 zaprosov v sutki"}
-    if resp.status_code != 200:
-        return {"error": f"YTM API {resp.status_code}: {resp.text[:500]}"}
-
-    try:
-        return resp.json()
-    except ValueError:
-        return {"error": "YTM API otvet ne JSON", "raw": resp.text[:500]}
+    Cherez sloj dostupa: token i rezhim opredelyayutsya akkauntom, a ne
+    peremennymi okruzheniya napryamuyu.
+    """
+    return access.ytm_get(account, path)
 
 
 def _is_builtin_variable(v: dict) -> bool:
@@ -71,9 +32,9 @@ def _is_builtin_variable(v: dict) -> bool:
 
 
 @mcp.tool()
-def get_ytm_tags(container_id: int) -> dict:
+def get_ytm_tags(container_id: int, account: str | None = None) -> dict:
     """Spisok tegov kontejnera YTM."""
-    data = _ytm_get(f"container/{container_id}/tags")
+    data = _ytm_get(f"container/{container_id}/tags", account)
     if "error" in data and "tags" not in data:
         return data
 
@@ -99,9 +60,9 @@ def get_ytm_tags(container_id: int) -> dict:
 
 
 @mcp.tool()
-def get_ytm_triggers(container_id: int) -> dict:
+def get_ytm_triggers(container_id: int, account: str | None = None) -> dict:
     """Spisok trigerov kontejnera YTM."""
-    data = _ytm_get(f"container/{container_id}/triggers")
+    data = _ytm_get(f"container/{container_id}/triggers", account)
     if "error" in data and "triggers" not in data:
         return data
 
@@ -126,15 +87,17 @@ def get_ytm_triggers(container_id: int) -> dict:
 
 
 @mcp.tool()
-def get_ytm_variables(container_id: int, only_user: bool = False) -> dict:
+def get_ytm_variables(container_id: int, only_user: bool = False,
+                      account: str | None = None) -> dict:
     """
     Spisok peremennyh kontejnera YTM.
 
     :param container_id: ID kontejnera
     :param only_user: esli True — vozvraschaem tol'ko pol'zovatel'skie
                       peremennye (bez vstroennyh Page URL, Referrer i t.p.)
+    :param account: imya akkaunta ili lyuboj znakomyj ID (sm. accounts_store.resolve)
     """
-    data = _ytm_get(f"container/{container_id}/variables")
+    data = _ytm_get(f"container/{container_id}/variables", account)
     if "error" in data and "variables" not in data:
         return data
 
@@ -162,7 +125,7 @@ def get_ytm_variables(container_id: int, only_user: bool = False) -> dict:
 
 
 @mcp.tool()
-def audit_ytm_container(container_id: int) -> dict:
+def audit_ytm_container(container_id: int, account: str | None = None) -> dict:
     """
     Audit kontejnera YTM:
     - tegi bez trigerov;
@@ -174,9 +137,9 @@ def audit_ytm_container(container_id: int) -> dict:
     Vstroennye peremennye (Page URL, Referrer i t.p.) v audit ne popadayut —
     u nih links_number vsegda 0 po prirode YTM.
     """
-    tags_data = get_ytm_tags(container_id)
-    triggers_data = get_ytm_triggers(container_id)
-    variables_data = get_ytm_variables(container_id)
+    tags_data = get_ytm_tags(container_id, account)
+    triggers_data = get_ytm_triggers(container_id, account)
+    variables_data = get_ytm_variables(container_id, account=account)
 
     for d in (tags_data, triggers_data, variables_data):
         if "error" in d and not any(k in d for k in ("tags", "triggers", "variables")):

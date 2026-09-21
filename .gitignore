@@ -5,3 +5,7 @@ venv/
 data/snapshots/*.json
 mcp_log.txt 
 .cursor/
+# tokeny akkauntov — nikogda v git
+secrets/
+# otchety audita generiruyutsya zanovo
+data/audits/

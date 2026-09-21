@@ -1,40 +1,30 @@
-from mcp_instance import mcp, api_client
+from mcp_instance import mcp
 # Obogashchenie dannyh: podstavlyaem nazvaniya vmesto ID.
 # Kampanii (Direct), schetchiki i celi (Metrika).
 # Kommentarii translitom, chtoby ne bylo krakozyabr v Windows-1251.
 
-import os
-import requests
-from dotenv import load_dotenv
-
-from mcp_instance import mcp, api_client
-
-load_dotenv()
-
-
-def _metrica_headers() -> dict | None:
-    """Zagolovki dlya Metrika API. None, esli token ne zadan v .env."""
-    token = os.getenv("YANDEX_METRICA_TOKEN")
-    if not token:
-        return None
-    return {
-        "Authorization": f"OAuth {token}",
-        "Content-Type": "application/json",
-    }
+import access
 
 
 @mcp.tool()
-def get_campaign_names(campaign_ids: list[int] | None = None) -> dict:
+def get_campaign_names(campaign_ids: list[int] | None = None,
+                       account: str | None = None) -> dict:
     """
     Vozvrashchaet {campaign_id: campaign_name} dlya vseh ili zadannyh kampanij.
 
     :param campaign_ids: spisok ID kampanij. Esli None — vse kampanii akkaunta.
+    :param account: imya akkaunta ili lyuboj znakomyj ID.
     """
+    try:
+        client = access.direct(account)
+    except access.AccessError as e:
+        return {"error": str(e)}
+
     params = {"FieldNames": ["Id", "Name", "State", "Status"]}
     if campaign_ids:
         params["SelectionCriteria"] = {"Ids": [int(c) for c in campaign_ids]}
 
-    result = api_client.post("campaigns", "get", params)
+    result = client.post("campaigns", "get", params)
     if isinstance(result, dict) and "error" in result:
         return result
 
@@ -54,19 +44,11 @@ def get_campaign_names(campaign_ids: list[int] | None = None) -> dict:
 
 
 @mcp.tool()
-def get_counter_names() -> dict:
+def get_counter_names(account: str | None = None) -> dict:
     """Vozvrashchaet {counter_id: counter_name} dlya vseh schetchikov Metriki."""
-    headers = _metrica_headers()
-    if headers is None:
-        return {"error": "YANDEX_METRICA_TOKEN ne zadan v .env"}
-
-    url = "https://api-metrika.yandex.net/management/v1/counters"
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return {"error": str(e)}
+    data = access.metrica_get(account, "/management/v1/counters")
+    if isinstance(data, dict) and data.get("error"):
+        return {"error": data["error"]}
 
     mapping = {}
     details = {}
@@ -78,29 +60,24 @@ def get_counter_names() -> dict:
             "site": c.get("site"),
             "type": c.get("type"),
             "status": c.get("status"),
+            "owner_login": c.get("owner_login"),
         }
     return {"count": len(mapping), "mapping": mapping, "details": details}
 
 
 @mcp.tool()
-def get_goal_names(counter_id: int, goal_ids: list[int] | None = None) -> dict:
+def get_goal_names(counter_id: int, goal_ids: list[int] | None = None,
+                   account: str | None = None) -> dict:
     """
-    Vozvrashchaet {goal_id: goal_name} dlya ukazannogo schetchika.
+    Vozvrashchaet {goal_id: goal_name} dlya ukazannogo schetchika Metriki.
 
     :param counter_id: ID schetchika Metriki
     :param goal_ids: spisok ID celej. Esli None — vse celi schetchika.
+    :param account: imya akkaunta ili lyuboj znakomyj ID.
     """
-    headers = _metrica_headers()
-    if headers is None:
-        return {"error": "YANDEX_METRICA_TOKEN ne zadan v .env"}
-
-    url = f"https://api-metrika.yandex.net/management/v1/counter/{counter_id}/goals"
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        return {"error": str(e)}
+    data = access.metrica_get(account, f"/management/v1/counter/{counter_id}/goals")
+    if isinstance(data, dict) and data.get("error"):
+        return {"error": data["error"]}
 
     goals = data.get("goals", [])
     if goal_ids:

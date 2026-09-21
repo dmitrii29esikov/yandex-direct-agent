@@ -50,10 +50,10 @@ def _latest_snapshot(container_id: int):
     return files[-1] if files else None
 
 
-def _extract_ytm_state(container_id: int) -> dict:
+def _extract_ytm_state(container_id: int, account: str | None = None) -> dict:
     """Snimaem tekushchee sostoyanie kontejnera YTM."""
-    tags = tag_manager.get_ytm_tags(container_id)
-    triggers = tag_manager.get_ytm_triggers(container_id)
+    tags = tag_manager.get_ytm_tags(container_id, account)
+    triggers = tag_manager.get_ytm_triggers(container_id, account)
     variables = tag_manager.get_ytm_variables(container_id, only_user=True)
 
     if "error" in tags and "tags" not in tags:
@@ -123,14 +123,14 @@ def _diff_section(name: str, old_items: list, new_items: list, key: str) -> dict
 
 
 @mcp.tool()
-def snapshot_ytm(container_id: int) -> dict:
+def snapshot_ytm(container_id: int, account: str | None = None) -> dict:
     """
     Snimaem tekushchee sostoyanie YTM-kontejnera i sohranyaem v fajl.
     Fajl: data/snapshots/ytm_{container_id}_{YYYY-MM-DD_HH-MM-SS}.json
 
     :param container_id: ID kontejnera YTM (naprimer 1007795)
     """
-    state = _extract_ytm_state(container_id)
+    state = _extract_ytm_state(container_id, account)
     if "error" in state:
         return state
 
@@ -181,7 +181,8 @@ def list_snapshots(container_id: int | None = None) -> dict:
 
 
 @mcp.tool()
-def audit_ytm_changes(container_id: int, compare_with: str | None = None) -> dict:
+def audit_ytm_changes(container_id: int, compare_with: str | None = None,
+                      account: str | None = None) -> dict:
     """
     Sravnivaem tekushchee sostoyanie YTM s poslednim snímkom.
     Esli compare_with zadan — s konkretnym fajlom.
@@ -205,7 +206,7 @@ def audit_ytm_changes(container_id: int, compare_with: str | None = None) -> dic
                 "hint": f"snapshot_ytm({container_id})",
             }
 
-    new_state = _extract_ytm_state(container_id)
+    new_state = _extract_ytm_state(container_id, account)
     if "error" in new_state:
         return new_state
 
