@@ -488,7 +488,7 @@ def audit_path(path: str) -> Dict[str, Any]:
     else:
         return {"summary": {"error": "path_not_found"}, "issues": [], "passports": [],
                 "ads": [], "images": [], "phrases": [], "minus_phrases": [],
-                "files": [], "regions": [], "dictionary": None}
+                "files": [], "meta": [], "regions": [], "dictionary": None}
 
     all_issues, passports, all_ads, all_images, all_phrases = [], [], [], [], []
     all_minus = []
@@ -738,6 +738,8 @@ def audit_direct_commander_files(path: str, json_output: bool = False) -> str:
     if json_output:
         return _json.dumps(result, ensure_ascii=False, indent=2, default=str)
     s = result["summary"]
+    if "error" in s:
+        return f"Ошибка: {s['error']}"
     return (
         f"Файлов: {s['Файлов']} | объявлений: {s['Всего объявлений']} | "
         f"групп: {s['Всего групп']} | проблем: {s['Всего проблем']} "
