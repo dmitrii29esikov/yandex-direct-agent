@@ -4,3 +4,4 @@ __pycache__/
 venv/
 data/snapshots/*.json
 mcp_log.txt 
+.cursor/
