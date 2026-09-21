@@ -7,7 +7,7 @@ Otlичае от tools/audit_files.py: tot chitaet XLSX, a etot — sam akkaunt.
 from mcp_instance import mcp
 
 import accounts_store as store
-from audit_engine import CHECKS, run_audit
+from audit_engine import CHECKS, FIXERS, rollback, run_apply, run_audit
 
 
 @mcp.tool()
@@ -76,3 +76,53 @@ def list_audit_checks() -> dict:
             for c in CHECKS
         ],
     }
+
+
+# --------------------------------------------------------------------------
+# Pravki (rezhim apply s dry-run)
+# --------------------------------------------------------------------------
+
+@mcp.tool()
+def list_audit_fixers() -> dict:
+    """Какие правки агент умеет применять сам, а какие только вручную."""
+    return {
+        "count": len(FIXERS),
+        "fixers": [{"code": fx["code"], "description": fx["description"]}
+                   for fx in FIXERS],
+        "note": "Всё остальное правится вручную или в интерфейсе Tag Manager (ytm_ui).",
+    }
+
+
+@mcp.tool()
+def apply_audit_fixes(account: str | None = None,
+                      date_range: str = "LAST_30_DAYS",
+                      confirm: bool = False,
+                      codes: list[str] | None = None) -> dict:
+    """
+    Применение автоматических правок с обязательным dry-run.
+
+    Без confirm=True НИЧЕГО не изменяется: инструмент только строит план
+    (что именно и на что будет изменено). С confirm=True применяет изменения,
+    пишет журнал в data/audits/apply_*.json и возвращает подсказку по откату.
+
+    :param account: имя аккаунта или любой знакомый ID
+    :param date_range: период для сбора статистики
+    :param confirm: False — план (dry-run), True — применить
+    :param codes: ограничить набор кодов (например ['DIRECT.TEXT_LENGTH'])
+    """
+    return run_apply(account=account, date_range=date_range,
+                     confirm=confirm, codes=codes)
+
+
+@mcp.tool()
+def rollback_apply(log_file: str, confirm: bool = False) -> dict:
+    """
+    Откат применённых правок по журналу.
+
+    Без confirm=True показывает, что именно будет откачено и что откатить
+    нельзя (например, снятие дневного бюджета через API невозможно).
+
+    :param log_file: имя файла журнала из data/audits/ или полный путь
+    :param confirm: False — план отката, True — выполнить
+    """
+    return rollback(log_file=log_file, confirm=confirm)
