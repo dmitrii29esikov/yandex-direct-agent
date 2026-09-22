@@ -215,6 +215,30 @@ def ytm_get(account: str | None, path: str, timeout: int = 30, retries: int = 1)
         return {"error": "YTM вернул не JSON", "raw": resp.text[:300]}
 
 
+def priority_goals(account: str | None = None) -> dict:
+    """
+    Prioritetnye tseli po kampaniyam: {campaign_id: [goal_id, ...]}.
+
+    Berem iz reestra. Zachem v reestre, a ne iz API: prоритетnye tseli zhivut
+    vnutri inline-strategii kampanii, a eto pole cherez API ne chitaetsya
+    (servis campaigns ne podderzhivaet TextCampaign, API v4 otklyuchen, servis
+    strategies otdaet tol'ko pакетnye strategii). Znacheniya zapolnyayutsya
+    odin raz iz interfejsa ili iz otcheta drugogo instrumenta.
+
+    Bez nih analiz «den'gi v ploshchadki bez celevyh» schitaet konversii po
+    vsem tselyam schetchika i daet druguyu kartinu.
+    """
+    name, record = context(account)
+    raw = (record.get("direct") or {}).get("priority_goals") or {}
+    result = {}
+    for campaign_id, goals in raw.items():
+        try:
+            result[int(campaign_id)] = [int(g) for g in goals]
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
 def ytm_container_ids(account: str | None = None) -> list:
     _, acc = context(account)
     return list((acc.get("ytm") or {}).get("container_ids") or [])

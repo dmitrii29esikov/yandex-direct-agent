@@ -293,3 +293,101 @@ def fetch_campaign_clients(ctx):
         ctx.data["direct_clients"] = None
         return
     ctx.data["direct_clients"] = (data or {}).get("clients", [])
+
+
+def fetch_deep(ctx, period: str):
+    """
+    Tяжёлые отчёты: sravnenie periodov, poisк, gruppy, ploshchadki, matritsa tselej.
+
+    Kazhdyj otchet otdel'no i so svoim perehvatom oshibki: sboj odnogo otcheta
+    ne dolzhen lomat' ves' audit. Esli otchet ne poluchen, sootvetstvuyushchee
+    pole stanovitsya None — i proverka chestno propuskaetsya, a ne vydaet
+    lozhnuyu nahodku.
+    """
+    from . import deltas as _deltas
+    from . import direct_reports as dr
+
+    keys = ("deltas", "search_queries", "adgroups_perf", "placements",
+            "goal_matrix", "goal_names")
+    campaigns = ctx.data.get("campaigns")
+    if campaigns is None:
+        for key in keys:
+            ctx.data[key] = None
+        ctx.note("Дополнительные отчёты не запрошены: список кампаний не получен")
+        return
+
+    ids = [c.get("Id") for c in campaigns if c.get("Id")]
+
+    data = _deltas.campaign_deltas(ctx.account, period, ids)
+    if data.get("error"):
+        ctx.add_error("deltas", data["error"])
+        ctx.data["deltas"] = None
+    else:
+        ctx.data["deltas"] = data
+
+    for key, fn in (("search_queries", dr.search_queries),
+                    ("adgroups_perf", dr.adgroup_performance),
+                    ("placements", dr.placements)):
+        result = fn(ctx.account, period, ids)
+        if result.get("error"):
+            ctx.add_error(key, result["error"])
+            ctx.data[key] = None
+        else:
+            ctx.data[key] = result.get("rows") or []
+
+    # Otchety s uchetom prioritetnyh tselej kampanij. Bez nih analiz
+    # «den'gi v ploshchadki bez celevyh» schitaet konversii po vsem tselyam.
+    goal_map = access.priority_goals(ctx.account)
+    if goal_map:
+        for key, fn in (("placements_targeted", dr.placements_goal_aware),
+                        ("adgroups_targeted", dr.adgroups_goal_aware)):
+            result = fn(ctx.account, period, goal_map, ids)
+            if result.get("error"):
+                ctx.add_error(key, result["error"])
+                ctx.data[key] = None
+            else:
+                ctx.data[key] = result.get("rows") or []
+    else:
+        ctx.data["placements_targeted"] = None
+        ctx.data["adgroups_targeted"] = None
+        ctx.note("Приоритетные цели не заданы в реестре — площадки и группы "
+                 "без целевых конверсий не проверялись. Добавьте "
+                 "direct.priority_goals, чтобы включить эту проверку")
+
+    # Imena tselej — nuzhny, chtoby v otchete pisat' nazvanie, a ne nomer.
+    names = {}
+    for goals in (ctx.data.get("goals") or {}).values():
+        for goal in goals or []:
+            if goal.get("id"):
+                names[int(goal["id"])] = goal.get("name")
+    ctx.data["goal_names"] = names
+
+    goals_all = []
+    for goals in (ctx.data.get("goals") or {}).values():
+        for goal in goals or []:
+            gid = goal.get("id")
+            if gid and int(gid) not in goals_all:
+                goals_all.append(int(gid))
+    if not goals_all:
+        ctx.data["goal_matrix"] = None
+        ctx.note("Цели Метрики не получены — проверка неработающих целей пропущена")
+        return
+
+    merged = {"goals": [], "by_campaign": {}, "dead_goals": []}
+    for start in range(0, len(goals_all), 10):
+        chunk = goals_all[start:start + 10]
+        result = dr.goal_matrix(ctx.account, "LAST_30_DAYS", chunk, ids)
+        if result.get("error"):
+            ctx.add_error(f"goal_matrix[{start}]", result["error"])
+            continue
+        merged["goals"].extend(result.get("goals") or [])
+        for cid, bucket in (result.get("by_campaign") or {}).items():
+            merged["by_campaign"].setdefault(cid, {}).update(bucket)
+
+    if not merged["goals"]:
+        ctx.data["goal_matrix"] = None
+        return
+    merged["dead_goals"] = [
+        g for g in merged["goals"]
+        if sum(b.get(g, 0) for b in merged["by_campaign"].values()) == 0]
+    ctx.data["goal_matrix"] = merged

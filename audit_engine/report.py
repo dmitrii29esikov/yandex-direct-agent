@@ -59,6 +59,14 @@ def render_markdown(ctx, findings, diagnoses, top: int = 10) -> str:
         lines.append("")
 
     # --- Svodka po kodam
+    # Dinamika k proshlomu periodu — tol'ko v glubokom rezhime.
+    if ctx.data.get("deltas"):
+        from . import deltas as _deltas
+        lines.append("## Динамика к предыдущему периоду")
+        lines.append("")
+        lines.append(_deltas.render_deltas(ctx.data["deltas"]))
+        lines.append("")
+
     lines.append("## Находки по типам")
     lines.append("")
     lines.append("| Код | Уровень | Находок | Макс. impact | Как правится |")

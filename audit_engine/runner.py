@@ -92,7 +92,8 @@ def _keep_only_active(ctx):
 
 def build_context(account: str | None = None,
                   date_range: str = DEFAULT_RANGE,
-                  only_active: bool = False) -> Ctx:
+                  only_active: bool = False,
+                  deep: bool = False) -> Ctx:
     """
     Sобираem kontekst akkaunta: reestr + dannye vseh tryoh konturov.
 
@@ -115,6 +116,8 @@ def build_context(account: str | None = None,
         _keep_only_active(ctx)
     _safe(ctx, "stats", fetchers.fetch_stats, ctx, date_range)
     _safe(ctx, "metrica", fetchers.fetch_metrica, ctx)
+    if deep:
+        _safe(ctx, "deep", fetchers.fetch_deep, ctx, date_range)
     _safe(ctx, "ytm", fetchers.fetch_ytm, ctx)
     _safe(ctx, "metrica/clients", fetchers.fetch_campaign_clients, ctx)
     return ctx
@@ -122,9 +125,10 @@ def build_context(account: str | None = None,
 
 def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
               top: int = 10, save_files: bool = True,
-              only_active: bool = False) -> dict:
+              only_active: bool = False, deep: bool = False) -> dict:
     """Polnyj audit odnogo akkaunta. Tol'ko chtenie."""
-    ctx = build_context(account, date_range, only_active=only_active)
+    ctx = build_context(account, date_range, only_active=only_active,
+                        deep=deep)
     if ctx.errors and ctx.errors[0]["label"] == "registry":
         return {"error": ctx.errors[0]["error"]}
 
@@ -135,6 +139,7 @@ def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
         "account": ctx.account,
         "date_range": date_range,
         "only_active": only_active,
+        "deep": deep,
         "campaigns_total": ctx.data.get("campaigns_total"),
         "campaigns_audited": len(ctx.data.get("campaigns") or []),
         "checks_run": len(CHECKS),
