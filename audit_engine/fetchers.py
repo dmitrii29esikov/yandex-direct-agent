@@ -164,6 +164,51 @@ def fetch_direct(ctx):
     ctx.data["direct_mode"] = access.direct_mode(ctx.account)
 
 
+def fetch_strategies(ctx):
+    """
+    Strategii, prioritetnye tseli i schetchiki kampanij.
+
+    Otdel'nyj shag, a ne chast' fetch_direct: esli Direct perestanet prinimat'
+    dopolnitel'nye nabory polej, my poteryaem tol'ko proverki strategij,
+    a ne ves audit.
+    """
+    campaigns = ctx.data.get("campaigns")
+    if campaigns is None:
+        ctx.data["strategies"] = None
+        ctx.data["priority_goals"] = None
+        ctx.note("Стратегии не запрошены: список кампаний не получен")
+        return
+
+    ids = [c.get("Id") for c in campaigns if c.get("Id")]
+    data = access.campaign_strategies(ctx.account, ids)
+    if data.get("error"):
+        ctx.add_error("direct/strategies", data["error"])
+        ctx.data["strategies"] = None
+        strategies = {}
+    else:
+        strategies = data.get("campaigns") or {}
+        ctx.data["strategies"] = strategies
+        ctx.note(f"Стратегии прочитаны через campaigns.get: {data.get('requests')} "
+                 f"запроса, поле {data.get('subfields_param')}")
+        if not strategies:
+            ctx.note("Кампаний для чтения стратегий нет")
+
+    resolved = access.priority_goals_resolved(ctx.account, strategies=strategies)
+    ctx.data["priority_goals"] = resolved
+    source = resolved.get("source")
+    if source == "api":
+        ctx.note("Приоритетные цели кампаний прочитаны из API (поле PriorityGoals)")
+    elif source == "registry":
+        ctx.note("Приоритетные цели взяты из реестра: API их не отдал "
+                 f"({resolved.get('error') or 'нет данных'})")
+    elif source == "mixed":
+        ctx.note("Приоритетные цели: источник — API, но есть расхождения с "
+                 f"реестром по {len(resolved.get('mismatch') or {})} кампаниям "
+                 "(см. DIRECT.GOALS_REGISTRY_DRIFT)")
+    else:
+        ctx.note("Приоритетные цели не найдены: ни API, ни реестр их не отдают")
+
+
 def fetch_stats(ctx, date_range: str):
     """Statistika po kampaniyam cherez Reports API."""
     from tools.reports import get_campaign_stats
@@ -337,7 +382,10 @@ def fetch_deep(ctx, period: str):
 
     # Otchety s uchetom prioritetnyh tselej kampanij. Bez nih analiz
     # «den'gi v ploshchadki bez celevyh» schitaet konversii po vsem tselyam.
-    goal_map = access.priority_goals(ctx.account)
+    resolved = ctx.data.get("priority_goals")
+    if resolved is None:
+        resolved = access.priority_goals_resolved(ctx.account)
+    goal_map = resolved.get("goals") or {}
     if goal_map:
         for key, fn in (("placements_targeted", dr.placements_goal_aware),
                         ("adgroups_targeted", dr.adgroups_goal_aware)):
@@ -350,9 +398,9 @@ def fetch_deep(ctx, period: str):
     else:
         ctx.data["placements_targeted"] = None
         ctx.data["adgroups_targeted"] = None
-        ctx.note("Приоритетные цели не заданы в реестре — площадки и группы "
-                 "без целевых конверсий не проверялись. Добавьте "
-                 "direct.priority_goals, чтобы включить эту проверку")
+        ctx.note("Приоритетные цели не получены ни через API, ни из реестра — "
+                 "площадки и группы без целевых конверсий не проверялись. "
+                 "Проверьте, что в стратегиях кампаний выбраны цели Метрики")
 
     # Imena tselej — nuzhny, chtoby v otchete pisat' nazvanie, a ne nomer.
     names = {}

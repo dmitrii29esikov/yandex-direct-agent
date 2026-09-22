@@ -55,21 +55,35 @@ def check_goals_missing_in_direct(ctx):
     if not counter_ids:
         return []
 
+    strategies = ctx.data.get("strategies")
     out = []
     checked_any = False
     for campaign in ctx.data.get("campaigns") or []:
         if campaign.get("State") == "ARCHIVED":
             continue
-        raw = campaign.get("CounterIds")
-        if raw is None:
-            continue          # pole nedostupno — chestno propuskaem
-        checked_any = True
-        items = []
-        if isinstance(raw, dict):
-            items = raw.get("Items") or []
-        elif isinstance(raw, list):
-            items = raw
-        items = {int(i) for i in items if str(i).isdigit()}
+        info = None
+        if strategies is not None:
+            try:
+                info = (strategies or {}).get(int(campaign.get("Id")))
+            except (TypeError, ValueError):
+                info = None
+
+        if info and info.get("counter_ids"):
+            # S 22.09.2026 schetchiki kampanii chitayutsya iz strategii
+            # (campaigns.get + TextCampaignFieldNames).
+            items = {int(c) for c in info["counter_ids"]}
+            checked_any = True
+        else:
+            raw = campaign.get("CounterIds")
+            if raw is None:
+                continue      # ni strategii, ni polya — chestno propuskaem
+            checked_any = True
+            items = []
+            if isinstance(raw, dict):
+                items = raw.get("Items") or []
+            elif isinstance(raw, list):
+                items = raw
+            items = {int(i) for i in items if str(i).isdigit()}
 
         if not (items & counter_ids):
             out.append(dict(
@@ -84,7 +98,8 @@ def check_goals_missing_in_direct(ctx):
             ))
 
     if not checked_any:
-        ctx.note("CROSS.GOALS_MISSING_IN_DIRECT: поле CounterIds недоступно, проверка пропущена")
+        ctx.note("CROSS.GOALS_MISSING_IN_DIRECT: счётчики кампаний недоступны "
+                 "(ни из стратегий, ни из кампаний), проверка пропущена")
     return out
 
 

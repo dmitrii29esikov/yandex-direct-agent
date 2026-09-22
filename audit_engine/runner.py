@@ -114,6 +114,9 @@ def build_context(account: str | None = None,
     _safe(ctx, "direct", fetchers.fetch_direct, ctx)
     if only_active:
         _keep_only_active(ctx)
+    # Strategii chitaem posle fil'tra «tol'ko zapuschennye»: tak my ne tratim
+    # baly na arhivnye kampanii, kotorye v otchet ne popadut.
+    _safe(ctx, "strategies", fetchers.fetch_strategies, ctx)
     _safe(ctx, "stats", fetchers.fetch_stats, ctx, date_range)
     _safe(ctx, "metrica", fetchers.fetch_metrica, ctx)
     if deep:

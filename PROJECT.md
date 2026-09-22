@@ -4,7 +4,7 @@ Yandex Direct Agent
 Назначение: MCP-сервер для Яндекс.Директа, Яндекс.Метрики,
 Яндекс Тег Менеджера и анализа сайтов.
 
-Инструментов: 41. Проверок аудита: 37. Фиксеров правок: 2.
+Инструментов: 42. Проверок аудита: 46. Фиксеров правок: 2.
 
 Быстрый старт для нового чата:
   Читай PROJECT.md и README.md в C:\yandex_direct_agent
@@ -12,7 +12,7 @@ Yandex Direct Agent
 Запуск:
   1) Как MCP-сервер (для Chatbox / Cursor):
      Command: C:\yandex_direct_agent\start_mcp.bat
-     Ожидаемый результат: 33 tools
+     Ожидаемый результат: 42 tools
   2) Из командной строки, без Chatbox:
      python cli.py audit dmitrii
      python cli.py accounts
@@ -43,5 +43,8 @@ Yandex Direct Agent
   data/audits/        — отчёты аудита (в .gitignore)
 
 Важно:
+  - Стратегии, недельные лимиты и приоритетные цели кампаний читаются через
+    API (campaigns.get + TextCampaignFieldNames). Реестр direct.priority_goals —
+    резервный источник, direct.expected_budget — ожидаемый недельный бюджет.
   - Рабочая папка только одна: C:\yandex_direct_agent. Копии не создавать.
   - Токены и ключи — только в .env и secrets/, в документации не писать.

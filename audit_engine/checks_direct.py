@@ -8,6 +8,8 @@ svalkoj iz tysyach strok, a ne spiskom zadach.
 
 from collections import Counter
 
+import access
+
 from .base import register
 
 # Limity iz spravki Direkta dlya tekstovo-graficheskih obyavlenij.
@@ -424,32 +426,82 @@ def check_status_payment(ctx):
           description="Есть клики, но расход не начисляется")
 def check_clicks_without_cost(ctx):
     """
-    Klikи est', a rashod nol' kazhdyj den' perioda.
+    Клики есть, а расход нулевой за период.
 
-    Chasche vsego eto NЕ oshibka i NE poterи: kampaniya rabotaet po modeli
-    oplaty za konversii — klikи besplatny, platim tol'ko za konversiyu.
-    Togda nol' rashoda pri nule konversij oznachaet, chto model' rabotaet kak
-    zamyshleno. Vtoroj variant — zaderzhka atributsii rashodov v otchete.
-
-    Strategiyu cherez API prochitat' nel'zya: servis campaigns ne podderzhivaet
-    pole so strategiej. Poetomu formuliruem ostromozhno i otpravlyaem cheloveka
-    posmotret' v interfejs.
+    Раньше мы не могли различить три разных случая, потому что стратегия не
+    читалась:
+      - «оплата за конверсии»: клики бесплатны, платим только за конверсию —
+        ноль расхода при нуле конверсий это норма, а не потеря;
+      - любая другая стратегия: расход начисляется за клики, значит дело либо
+        в задержке атрибуции расходов, либо в состоянии оплаты;
+      - стратегию прочитать не удалось — формулируем осторожно.
     """
     if not ctx.loaded("campaigns", "stats"):
         return []
 
+    strategies = ctx.data.get("strategies")
     out = []
     for campaign in ctx.data.get("campaigns") or []:
         stats = (ctx.data.get("stats") or {}).get(str(campaign.get("Id"))) or {}
         clicks = stats.get("clicks") or 0
         cost = stats.get("cost") or 0
-        if clicks > 0 and cost == 0:
+        if not (clicks > 0 and cost == 0):
+            continue
+
+        info = None
+        if strategies is not None:
+            try:
+                info = (strategies or {}).get(int(campaign.get("Id")))
+            except (TypeError, ValueError):
+                info = None
+
+        pays_for_conversion, others = [], []
+        for scope, scope_info in ((info or {}).get("scopes") or {}).items():
+            stype = str(scope_info.get("type") or "")
+            if not stype or stype == access.OFF_TYPE:
+                continue
+            if stype.startswith("PAY_FOR_CONVERSION"):
+                pays_for_conversion.append(stype)
+            else:
+                others.append(stype)
+
+        if info and pays_for_conversion and not others:
             out.append(dict(
+                severity="info",
+                title="Клики без расхода — так работает оплата за конверсии",
+                detail=f"{int(clicks)} кликов и 0 ₽ расхода. Стратегия кампании — "
+                       f"«оплата за конверсии» ({', '.join(pays_for_conversion)}): "
+                       f"клики бесплатны, платим только за конверсию. При нуле "
+                       f"конверсий ноль расхода — ожидаемое поведение модели, "
+                       f"а не потеря денег",
+                evidence={"клики": clicks, "расход": cost,
+                          "конверсии": stats.get("conversions"),
+                          "стратегии": pays_for_conversion},
+                fix="Вмешательство не требуется. Если конверсий нет неделями — "
+                    "разбирайте цели и поисковые запросы",
+                **_campaign_meta(campaign),
+            ))
+        elif info and others:
+            out.append(dict(
+                severity="warning",
+                title="Клики есть, расход не начисляется",
+                detail=f"{int(clicks)} кликов и 0 ₽ расхода, при этом стратегия — "
+                       f"«{others[0]}»: в этой модели расход начисляется за клики. "
+                       f"Проверьте состояние оплаты и задержку отчётности",
+                evidence={"клики": clicks, "расход": cost,
+                          "конверсии": stats.get("conversions"),
+                          "стратегии": others},
+                fix="Проверить оплату аккаунта и отчёт по расходам за сегодня",
+                **_campaign_meta(campaign),
+            ))
+        else:
+            out.append(dict(
+                severity="info",
                 title="Клики без расхода",
-                detail=f"{int(clicks)} кликов и 0 ₽ расхода за период. Скорее всего "
-                       f"кампания работает по модели оплаты за конверсии: клики "
-                       f"бесплатны, платим только за конверсию. Проверьте стратегию "
-                       f"в интерфейсе: через API она не читается.",
+                detail=f"{int(clicks)} кликов и 0 ₽ расхода за период. Чаще всего "
+                       f"это модель оплаты за конверсии (клики бесплатны, платим "
+                       f"за конверсию), реже — задержка атрибуции расходов. "
+                       f"Стратегию прочитать не удалось",
                 evidence={"клики": clicks, "расход": cost,
                           "конверсии": stats.get("conversions")},
                 fix="Убедиться, что модель оплаты и цель выбраны осознанно",

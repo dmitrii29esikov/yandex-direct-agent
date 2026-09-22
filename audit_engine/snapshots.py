@@ -4,11 +4,14 @@
 Зачем: отчёт об изменениях за период — сильнейшая часть аудита. Без него
 невозможно понять, что случилось с аккаунтом за неделю и кто это сделал.
 
-ВАЖНОЕ ОГРАНИЧЕНИЕ. Инлайн-стратегия кампании (BiddingStrategy, PriorityGoals)
-через API не читается: сервис campaigns не поддерживает поле TextCampaign,
-API v4 отключён, а сервис strategies отдаёт только пакетные стратегии. Поэтому
-снимок отслеживает состояние, бюджет, минус-фразы, временной таргетинг и
-количество объектов, но НЕ смену стратегии. Это честно указано в отчёте.
+С 22.09.2026 в снимок попадают стратегии: тип по каналам, недельный лимит
+расхода, ограничение ставки, целевая цена конверсии, приоритетные цели,
+модель атрибуции и счётчики. Это стало возможно потому, что campaigns.get
+принимает дополнительные наборы полей (TextCampaignFieldNames и родственные) —
+см. access.campaign_strategies.
+
+Что по-прежнему не отслеживается: связь «пакетная стратегия → кампания».
+Сервис strategies отдаёт только сами пакеты, без списка кампаний на них.
 
 Все функции только читают аккаунт. Откаты — это текст подсказок, они не
 отправляются в API: применение правок делается отдельно и по подтверждению.
@@ -33,6 +36,17 @@ CAMPAIGN_FIELDS = ["Id", "Name", "Type", "State", "Status", "StatusPayment",
 TRACKED = ["State", "Status", "StatusPayment", "StatusClarification",
            "StartDate", "EndDate", "DailyBudget", "TimeZone"]
 
+# Подполя стратегии, которые сравниваем между снимками.
+STRATEGY_TRACKED = [
+    ("weekly_limit", "недельный лимит расхода", "warning"),
+    ("bid_ceiling", "ограничение ставки", "info"),
+    ("cpa", "целевая цена конверсии", "info"),
+    ("average_cpc", "средняя цена клика", "info"),
+    ("goals", "цели канала", "warning"),
+]
+
+ID_CHUNK = 10       # Direct принимает не более 10 ID за запрос
+
 
 def _listify(value):
     """Поле-список приходит как {'Items': [...]}, реже как обычный список."""
@@ -43,6 +57,22 @@ def _listify(value):
     if isinstance(value, list):
         return list(value)
     return [value]
+
+
+def _strategy_snapshot(info: dict) -> dict:
+    """Стратегия кампании в виде, пригодном для сравнения и отката."""
+    return {
+        scope: {
+            "type": scope_info.get("type"),
+            "weekly_limit": scope_info.get("weekly_limit"),
+            "bid_ceiling": scope_info.get("bid_ceiling"),
+            "cpa": scope_info.get("cpa"),
+            "average_cpc": scope_info.get("average_cpc"),
+            "goals": scope_info.get("goals"),
+            "raw": scope_info.get("raw"),
+        }
+        for scope, scope_info in (info.get("scopes") or {}).items()
+    }
 
 
 def build_snapshot(account: str, date_range: str | None = None) -> dict:
@@ -78,32 +108,73 @@ def build_snapshot(account: str, date_range: str | None = None) -> dict:
             "TimeZone": camp.get("TimeZone"),
             "TimeTargeting": camp.get("TimeTargeting"),
             "NegativeKeywords": _listify(camp.get("NegativeKeywords")),
+            # Стратегии и цели — из отдельного запроса, ниже.
+            "Strategy": {},
+            "StrategyBlock": None,
+            "PriorityGoals": [],
+            "AttributionModel": None,
+            "CounterIds": [],
+            "Settings": {},
         }
+
+    # Стратегии, лимиты и приоритетные цели: то, что раньше считалось недоступным.
+    strategy_error = None
+    strategies = {}
+    try:
+        data = access.campaign_strategies(account, list(campaigns.keys()))
+        if data.get("error"):
+            strategy_error = data["error"]
+        else:
+            strategies = data.get("campaigns") or {}
+    except access.AccessError as e:
+        strategy_error = str(e)
+
+    for cid, info in strategies.items():
+        bucket = campaigns.get(str(cid))
+        if not bucket:
+            continue
+        bucket["Strategy"] = _strategy_snapshot(info)
+        bucket["StrategyBlock"] = info.get("strategy_block")
+        bucket["PriorityGoals"] = info.get("priority_goals") or []
+        bucket["AttributionModel"] = info.get("attribution_model")
+        bucket["CounterIds"] = info.get("counter_ids") or []
+        bucket["Settings"] = info.get("settings") or {}
 
     # Количество групп и объявлений — тоже часть состояния аккаунта.
     for cid in campaigns:
         campaigns[cid]["AdGroups"] = None
         campaigns[cid]["Ads"] = None
-    groups = client.post("adgroups", "get",
-                         {"SelectionCriteria": {"CampaignIds": [
-                             c["Id"] for c in campaigns.values()][:10]},
-                          "FieldNames": ["Id", "CampaignId"],
-                          "Page": {"Limit": 10000}})
-    if not (isinstance(groups, dict) and groups.get("error")):
-        counts = {}
+    ids = [c["Id"] for c in campaigns.values()]
+    counts = {}
+    for start in range(0, len(ids), ID_CHUNK):
+        chunk = ids[start:start + ID_CHUNK]
+        groups = client.post("adgroups", "get",
+                             {"SelectionCriteria": {"CampaignIds": chunk},
+                              "FieldNames": ["Id", "CampaignId"],
+                              "Page": {"Limit": 10000}})
+        if isinstance(groups, dict) and groups.get("error"):
+            continue
         for grp in (groups.get("result") or {}).get("AdGroups", []):
-            counts[str(grp.get("CampaignId"))] = counts.get(str(grp.get("CampaignId")), 0) + 1
-        for cid, count in counts.items():
-            if cid in campaigns:
-                campaigns[cid]["AdGroups"] = count
+            key = str(grp.get("CampaignId"))
+            counts[key] = counts.get(key, 0) + 1
+    for cid, count in counts.items():
+        if cid in campaigns:
+            campaigns[cid]["AdGroups"] = count
+
+    if strategy_error:
+        limitation = (f"Стратегии в этот снимок не попали: {strategy_error}. "
+                      f"Восстановите доступ к Direct и снимите снимок заново")
+    else:
+        limitation = ("Связь «пакетная стратегия → кампания» не отслеживается: "
+                      "сервис strategies отдаёт только пакеты стратегий")
 
     return {
         "account": account,
         "taken_at": datetime.now().isoformat(timespec="seconds"),
         "date_range": date_range,
         "campaigns": campaigns,
-        "limitation": "Смена стратегии не отслеживается: инлайн-стратегия "
-                      "не читается через API.",
+        "limited": bool(strategy_error),
+        "limitation": limitation,
     }
 
 
@@ -121,7 +192,10 @@ def save_snapshot(account: str, date_range: str | None = None) -> dict:
 
     return {"ok": True, "file": path.name, "path": str(path),
             "taken_at": snapshot["taken_at"],
-            "campaigns": len(snapshot["campaigns"])}
+            "campaigns": len(snapshot["campaigns"]),
+            "strategies": sum(1 for c in snapshot["campaigns"].values()
+                              if c.get("Strategy")),
+            "limitation": snapshot["limitation"]}
 
 
 def list_snapshots(account: str | None = None) -> dict:
@@ -175,6 +249,86 @@ def _rollback_negatives(campaign_id: int, keywords: list) -> str:
         ensure_ascii=False)
 
 
+def _rollback_strategy(campaign_id: int, block: str | None,
+                       scope: str, raw: dict | None) -> str | None:
+    """
+    Заготовка отката стратегии канала: campaigns.update с прежним BiddingStrategy.
+
+    Возвращаем прежний объект канала целиком — вместе с лимитом, ставкой
+    и целями. Именно поэтому снимок хранит "raw": восстановить по числам
+    не получится, API ждёт исходную структуру.
+    """
+    if not block or not raw:
+        return None
+    return json.dumps({
+        "method": "update",
+        "params": {"Campaigns": [{"Id": campaign_id,
+                                  block: {"BiddingStrategy": {scope: raw}}}]}},
+        ensure_ascii=False)
+
+
+def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
+    """
+    Что изменилось в стратегиях кампании: тип канала, лимиты, ставки и цели.
+
+    Если сменился тип стратегии канала, подполя этого канала не сравниваем:
+    у новой стратегии другой набор лимитов, и такие «изменения» — шум.
+    """
+    changes = []
+    block = after.get("StrategyBlock") or before.get("StrategyBlock")
+    old_scopes = before.get("Strategy") or {}
+    new_scopes = after.get("Strategy") or {}
+
+    for scope in sorted(set(old_scopes) | set(new_scopes)):
+        old = old_scopes.get(scope) or {}
+        new = new_scopes.get(scope) or {}
+        if old == new:
+            continue
+
+        if old.get("type") != new.get("type"):
+            changes.append({
+                "campaign_id": campaign_id, "campaign_name": name,
+                "field": f"Стратегия канала {scope}", "severity": "warning",
+                "before": old.get("type"), "after": new.get("type"),
+                "rollback": _rollback_strategy(campaign_id, block, scope, old.get("raw")),
+                "note": "Сменился тип стратегии — при откате вернётся и лимит, "
+                        "и ставка, и цели этого канала",
+            })
+            continue
+
+        for field, label, severity in STRATEGY_TRACKED:
+            old_value, new_value = old.get(field), new.get(field)
+            if old_value == new_value:
+                continue
+            item = {"campaign_id": campaign_id, "campaign_name": name,
+                    "field": f"{label} ({scope})", "severity": severity,
+                    "before": old_value, "after": new_value}
+            if field in ("weekly_limit", "goals"):
+                item["rollback"] = _rollback_strategy(campaign_id, block, scope,
+                                                      old.get("raw"))
+                item["note"] = ("Изменилась настройка стратегии: при откате "
+                                "вернётся весь объект канала")
+            elif field == "bid_ceiling":
+                item["note"] = "Изменено ограничение ставки"
+            else:
+                item["note"] = f"Изменилась настройка: {label}"
+            changes.append(item)
+
+    for field, label, severity in (("PriorityGoals", "Приоритетные цели", "warning"),
+                                   ("AttributionModel", "Модель атрибуции", "info"),
+                                   ("CounterIds", "Счётчики Метрики", "info")):
+        old_value, new_value = before.get(field), after.get(field)
+        if old_value == new_value:
+            continue
+        changes.append({
+            "campaign_id": campaign_id, "campaign_name": name,
+            "field": label, "severity": severity,
+            "before": old_value, "after": new_value,
+            "note": "Изменилась настройка кампании",
+        })
+    return changes
+
+
 def _diff_campaign(before: dict, after: dict) -> list:
     changes = []
     campaign_id = after.get("Id")
@@ -212,6 +366,8 @@ def _diff_campaign(before: dict, after: dict) -> list:
             "rollback": _rollback_negatives(campaign_id, sorted(old_neg)),
             "note": "Изменён список минус-фраз",
         })
+
+    changes.extend(_diff_strategy(before, after, campaign_id, name))
 
     for field, label in (("AdGroups", "групп"), ("Ads", "объявлений")):
         old, new = before.get(field), after.get(field)
@@ -275,5 +431,6 @@ def compare_snapshots(account: str, before_file: str | None = None,
         "current_at": current.get("taken_at"),
         "changes_count": len(changes),
         "changes": changes,
+        "strategy_tracked": bool(current.get("campaigns")) and not current.get("limited"),
         "limitation": current.get("limitation"),
     }

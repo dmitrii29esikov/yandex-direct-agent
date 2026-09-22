@@ -21,6 +21,55 @@ log = logging.getLogger("access")
 METRICA_BASE = "https://api-metrika.yandex.net"
 YTM_BASE = "https://api.ytm.yandex.net/ytm/management/v1"
 
+MICROS = 1_000_000          # Direct otdaet dengi v mikroedinicah (1 000 000 = 1 ₽)
+
+# --------------------------------------------------------------------------
+# Strategii kampanij: chto i kak chitaetsya (otkryto 22.09.2026)
+#
+# BiddingStrategy, PriorityGoals, CounterIds i Settings NE vhodyat v obshchij
+# FieldNames servisa campaigns. Ih peredayut OTDEL'NYMI naborami polej:
+#   TextCampaignFieldNames / UnifiedCampaignFieldNames / SmartCampaignFieldNames.
+# Esli polozhit' "TextCampaign" v FieldNames, API otvechaet oshibkoj 8000
+# i v tekste perechislyaet dopustimye podpolya — tak etot sposob i nashёlsya.
+# Vazhnaya detal': u Smart-kampanij pole nazyvaetsya CounterId (v ed. chisle),
+# poetomu u nih svoj nabor polej.
+# --------------------------------------------------------------------------
+STRATEGY_SUBFIELDS = [
+    "CounterIds", "PriorityGoals", "BiddingStrategy", "AttributionModel",
+    "Settings", "PackageBiddingStrategy", "WeeklyBudgetRollover",
+]
+SMART_SUBFIELDS = [
+    "CounterId", "PriorityGoals", "BiddingStrategy", "AttributionModel",
+    "Settings", "PackageBiddingStrategy", "WeeklyBudgetRollover",
+]
+STRATEGY_FIELDS = ["Id", "Name", "Type", "State", "Status", "DailyBudget"]
+STRATEGY_BLOCKS = ("TextCampaign", "UnifiedCampaign", "SmartCampaign")
+SCOPES = ("Search", "Network")
+IDS_PER_REQUEST = 10        # Direct prinimaet ne bolee 10 ID za zapros
+
+# Vnutrennij ob'ekt strategii: u kazhdogo tipa svoi limit i stavki.
+STRATEGY_INNER = {
+    "PAY_FOR_CONVERSION": "PayForConversion",
+    "PAY_FOR_CONVERSION_MULTIPLE_GOALS": "PayForConversionMultipleGoals",
+    "WB_MAXIMUM_CLICKS": "WbMaximumClicks",
+    "WB_MAXIMUM_CONVERSION_RATE": "WbMaximumConversionRate",
+    "WB_MAXIMUM_CONVERSIONS": "WbMaximumConversions",
+    "AVERAGE_CPC": "AverageCpc",
+    "AVERAGE_CPA": "AverageCpa",
+    "AVERAGE_CRR": "AverageCrr",
+    "HIGHEST_POSITION": "HighestPosition",
+}
+
+# Klassifikatsiya tipov strategij dlya proverok.
+AUTO_TYPES = {
+    "PAY_FOR_CONVERSION", "PAY_FOR_CONVERSION_MULTIPLE_GOALS",
+    "WB_MAXIMUM_CLICKS", "WB_MAXIMUM_CONVERSION_RATE", "WB_MAXIMUM_CONVERSIONS",
+    "AVERAGE_CPA", "AVERAGE_CRR",
+}
+MANUAL_TYPES = {"HIGHEST_POSITION", "AVERAGE_CPC"}
+OFF_TYPE = "SERVING_OFF"
+FOLLOW_TYPES = {"NETWORK_DEFAULT"}      # "kak v poiske"
+
 
 class AccessError(Exception):
     """Dostup k konturu ne nastroen ili otozvan. Tekst uzhe ponyaten cheloveku."""
@@ -180,7 +229,7 @@ def ytm_get(account: str | None, path: str, timeout: int = 30, retries: int = 1)
 
     U YTM byvayut medlennye otvety (osobenno /variables), poetomu pri tajmaute
     delaem odnu povtornuyu popytku s uvelichennym tajmautom vmesto togo,
-    chtoby srazu pisat' ""ne provereno"".
+    chtoby srazu pisat' "ne provereno".
     """
     try:
         headers = ytm_headers(account)
@@ -215,28 +264,296 @@ def ytm_get(account: str | None, path: str, timeout: int = 30, retries: int = 1)
         return {"error": "YTM вернул не JSON", "raw": resp.text[:300]}
 
 
-def priority_goals(account: str | None = None) -> dict:
-    """
-    Prioritetnye tseli po kampaniyam: {campaign_id: [goal_id, ...]}.
+# --------------------------------------------------------------------------
+# Strategii kampanij: chtenie cherez API
+# --------------------------------------------------------------------------
 
-    Berem iz reestra. Zachem v reestre, a ne iz API: prоритетnye tseli zhivut
-    vnutri inline-strategii kampanii, a eto pole cherez API ne chitaetsya
-    (servis campaigns ne podderzhivaet TextCampaign, API v4 otklyuchen, servis
-    strategies otdaet tol'ko pакетnye strategii). Znacheniya zapolnyayutsya
-    odin raz iz interfejsa ili iz otcheta drugogo instrumenta.
+def rub(value):
+    """Mikroedinitsy → rubli. None ostаётся None (a ne nulyom)."""
+    if value is None:
+        return None
+    try:
+        return round(float(value) / MICROS, 2)
+    except (TypeError, ValueError):
+        return None
 
-    Bez nih analiz «den'gi v ploshchadki bez celevyh» schitaet konversii po
-    vsem tselyam schetchika i daet druguyu kartinu.
+
+def _items(value) -> list:
+    """Pole-spisok API prihodit kak {"Items": [...]}, rezhe kak obychyj list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return list(value)
+    if isinstance(value, dict):
+        return list(value.get("Items") or [])
+    return [value]
+
+
+def _goal_id(value):
+    """Identifikator tseli iz {GoalId: ...} libo iz gologo chisla."""
+    if isinstance(value, dict):
+        value = value.get("GoalId")
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _strategy_scope(scope_obj) -> dict:
     """
-    name, record = context(account)
+    Odin kanal (Search / Network): tip strategii, limit rashoda, stavki i tseli.
+
+    U kazhdogo tipa strategii svoj vnutrennij ob'ekt (PayForConversion,
+    WbMaximumClicks, AverageCpc...). Berem ego po tablitse STRATEGY_INNER,
+    a esli tip neznakomyj — pervyj zhe vlozhennyj ob'ekt.
+    """
+    if not isinstance(scope_obj, dict):
+        return {"type": None, "weekly_limit": None, "bid_ceiling": None,
+                "cpa": None, "average_cpc": None, "budget_type": None,
+                "goals": [], "raw": {}}
+
+    stype = scope_obj.get("BiddingStrategyType")
+    inner = scope_obj.get(STRATEGY_INNER.get(str(stype)) or "")
+    if not isinstance(inner, dict):
+        inner = next((v for v in scope_obj.values() if isinstance(v, dict)), {})
+
+    goals = []
+    gid = _goal_id(inner.get("GoalId"))
+    if gid is not None:
+        goals.append(gid)
+    for key in ("Goals", "GoalIds", "PriorityGoals"):
+        for item in _items(inner.get(key)):
+            gid = _goal_id(item)
+            if gid is not None:
+                goals.append(gid)
+
+    return {
+        "type": stype,
+        "weekly_limit": rub(inner.get("WeeklySpendLimit")),
+        "bid_ceiling": rub(inner.get("BidCeiling")),
+        "cpa": rub(inner.get("Cpa")),
+        "average_cpc": rub(inner.get("AverageCpc")),
+        "budget_type": inner.get("BudgetType"),
+        "goals": list(dict.fromkeys(goals)),
+        "raw": scope_obj,
+    }
+
+
+def campaign_strategy(camp: dict) -> dict:
+    """
+    Razbor odnogo otveta campaigns.get v ponyatnuyu strukturu.
+
+    Vozvrashchaet diktat po kampanii: kanaly, limity, tseli, schetchiki,
+    nastroyki i syroj blok strategii (nuzhen dlya snimkov i otkatov).
+    """
+    block = next((camp.get(k) for k in STRATEGY_BLOCKS if camp.get(k)), None) or {}
+
+    priority = []
+    for item in _items(block.get("PriorityGoals")):
+        gid = _goal_id(item)
+        if gid is not None:
+            priority.append(gid)
+
+    bidding = block.get("BiddingStrategy") or {}
+    scopes = {scope: _strategy_scope(bidding.get(scope)) for scope in SCOPES}
+    strategy_goals = []
+    for scope in SCOPES:
+        strategy_goals.extend(scopes[scope]["goals"])
+
+    settings = {}
+    for item in _items(block.get("Settings")):
+        if isinstance(item, dict) and item.get("Option"):
+            settings[str(item["Option"])] = item.get("Value")
+
+    counters = []
+    for key in ("CounterIds", "CounterId"):
+        value = block.get(key)
+        if value is None:
+            continue
+        if isinstance(value, dict):
+            counters.extend(int(c) for c in _items(value) if c is not None)
+        else:
+            counters.append(int(value))
+
+    daily = camp.get("DailyBudget")
+    if isinstance(daily, dict):
+        daily = daily.get("Amount")
+
+    return {
+        "id": camp.get("Id"),
+        "name": camp.get("Name"),
+        "type": camp.get("Type"),
+        "state": camp.get("State"),
+        "status": camp.get("Status"),
+        "daily_budget": rub(daily),
+        "attribution_model": block.get("AttributionModel"),
+        "counter_ids": counters,
+        "priority_goals": priority,
+        "strategy_goals": {scope: scopes[scope]["goals"] for scope in SCOPES},
+        "goals_all": list(dict.fromkeys(priority + strategy_goals)),
+        "scopes": scopes,
+        "settings": settings,
+        "package_strategy": block.get("PackageBiddingStrategy"),
+        "strategy_block": next((k for k in STRATEGY_BLOCKS if camp.get(k)), None),
+        "raw": block,
+    }
+
+
+def campaign_strategies(account: str | None = None,
+                        campaign_ids=None) -> dict:
+    """
+    Strategii, prioritetnye tseli, schetchiki i nastroyki kampanij — iz API.
+
+    Vozvrashchaet {"campaigns": {campaign_id: {...}}, "requests": N} libo
+    {"error": "..."}. Kampanii zaprashivaem po 10 ID: bolshe Direct ne prinimaet.
+
+    Bez etogo chteniya audit ne znaet ni prioritetnyh tselej, ni nedel'nogo
+    limita rashoda — a bez nih nevozmozhno otvetit' na vopros «kuda idut den'gi».
+    """
+    try:
+        client = direct(account)
+    except AccessError as e:
+        return {"error": str(e)}
+
+    ids = []
+    for value in campaign_ids or []:
+        try:
+            ids.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not ids:
+        listing = client.post("campaigns", "get",
+                              {"SelectionCriteria": {}, "FieldNames": ["Id"]})
+        if isinstance(listing, dict) and listing.get("error"):
+            return {"error": str(listing.get("error_text") or listing.get("error"))}
+        ids = [int(c["Id"]) for c in (listing.get("result") or {}).get("Campaigns", [])
+               if c.get("Id")]
+    if not ids:
+        return {"campaigns": {}, "requests": 0, "subfields_param": None}
+
+    # Lesenka naborov polej: esli API ne prinimaet kakoy-to nabor, probuem
+    # sleduyushchij, a ne rонyaem ves audit.
+    variants = [
+        {"TextCampaignFieldNames": STRATEGY_SUBFIELDS,
+         "UnifiedCampaignFieldNames": STRATEGY_SUBFIELDS,
+         "SmartCampaignFieldNames": SMART_SUBFIELDS},
+        {"TextCampaignFieldNames": STRATEGY_SUBFIELDS,
+         "UnifiedCampaignFieldNames": STRATEGY_SUBFIELDS},
+        {"TextCampaignFieldNames": STRATEGY_SUBFIELDS},
+    ]
+
+    campaigns = {}
+    requests = 0
+    working = None
+    for start in range(0, len(ids), IDS_PER_REQUEST):
+        chunk = ids[start:start + IDS_PER_REQUEST]
+        order = ([working] if working else []) + [v for v in variants if v != working]
+        last_error = None
+        for variant in order:
+            params = {"SelectionCriteria": {"Ids": chunk},
+                      "FieldNames": STRATEGY_FIELDS}
+            params.update(variant)
+            result = client.post("campaigns", "get", params)
+            requests += 1
+            if isinstance(result, dict) and result.get("error"):
+                last_error = str(result.get("error_text") or result.get("error"))
+                continue
+            working = variant
+            for camp in (result.get("result") or {}).get("Campaigns", []):
+                info = campaign_strategy(camp)
+                if info.get("id"):
+                    campaigns[int(info["id"])] = info
+            break
+        else:
+            return {"error": last_error or "campaigns.get: неизвестная ошибка",
+                    "campaigns": campaigns, "requests": requests}
+
+    return {"campaigns": campaigns, "requests": requests,
+            "subfields_param": ",".join(sorted((working or {}).keys())) or None}
+
+
+def _registry_priority_goals(account: str | None = None) -> dict:
+    """Prioritetnye tseli iz reestra — rezervnyj istochnik i predohranitel'."""
+    _, record = context(account)
     raw = (record.get("direct") or {}).get("priority_goals") or {}
     result = {}
     for campaign_id, goals in raw.items():
         try:
-            result[int(campaign_id)] = [int(g) for g in goals]
+            result[int(campaign_id)] = sorted({int(g) for g in goals})
         except (TypeError, ValueError):
             continue
     return result
+
+
+def priority_goals_resolved(account: str | None = None,
+                            strategies: dict | None = None) -> dict:
+    """
+    Prioritetnye tseli kampanij: snachala API, potom reestr.
+
+    API pervyj, potomu chto reestr zastarevaet: tseli menяyut v interfejse ili
+    drugim agentom, i ruchnye znacheniya tihо rashodyatsya s faktom. Reestr
+    ostaetsya rezervom — na sluchaj, kogda strategiyu prochitat' ne udalos'.
+
+    strategies — uzhe prochitannye dannye campaign_strategies (chtoby ne tratit'
+    baly dva raza na odin i tot zhe zapros).
+
+    Vozvrashchaet {"goals", "source", "api", "registry", "mismatch", "error"}.
+    """
+    try:
+        registry = _registry_priority_goals(account)
+    except AccessError:
+        registry = {}
+
+    error = None
+    if strategies is None:
+        data = campaign_strategies(account)
+        if data.get("error"):
+            error = data["error"]
+        strategies = data.get("campaigns") or {}
+
+    api_goals = {}
+    for cid, info in (strategies or {}).items():
+        goals = (info or {}).get("goals_all") or []
+        if goals:
+            api_goals[int(cid)] = list(goals)
+
+    goals, mismatch = {}, {}
+    for cid in sorted(set(api_goals) | set(registry)):
+        from_api = sorted(api_goals.get(cid) or [])
+        from_reg = sorted(registry.get(cid) or [])
+        chosen = from_api or from_reg
+        if not chosen:
+            continue
+        goals[cid] = chosen
+        # Rassozhdenie — eto kogda reestr chto-to utverzhdaet, a API govorit
+        # inoe. Pustoj reestr rassozhdeniem ne schitaem: eto nevypolnennaya
+        # zapis', a ne ustarevshie dannye, i rugat'sya za nee nekogo.
+        if from_reg and from_api != from_reg:
+            mismatch[cid] = {"api": from_api, "registry": from_reg}
+
+    if api_goals and mismatch:
+        source = "mixed"
+    elif api_goals:
+        source = "api"
+    elif registry:
+        source = "registry"
+    else:
+        source = None
+
+    return {"goals": goals, "source": source, "api": api_goals,
+            "registry": registry, "mismatch": mismatch, "error": error}
+
+
+def priority_goals(account: str | None = None) -> dict:
+    """
+    Prioritetnye tseli po kampaniyam: {campaign_id: [goal_id, ...]}.
+
+    Chtenie cherez API (pole PriorityGoals v strategii kampanii), reestr —
+    rezerv. Bez etih tselej analiz «den'gi v ploshchadki bez celevyh» schitaet
+    konversii po VSEM tselyam schetchika i daet druguyu kartinu: s nimi my
+    nahodim 1 748 ₽ rashoda bez tselenogo rezul'tata.
+    """
+    return priority_goals_resolved(account)["goals"]
 
 
 def ytm_container_ids(account: str | None = None) -> list:

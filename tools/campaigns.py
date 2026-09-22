@@ -30,6 +30,61 @@ def get_campaigns(campaign_ids: list[int] = None, account: str | None = None) ->
 
 
 @mcp.tool()
+def get_campaign_strategies(campaign_ids: list[int] = None,
+                            account: str | None = None) -> dict:
+    """
+    Стратегии кампаний: тип по каналам, недельный лимит, ставки и приоритетные
+    цели.
+
+    Это то, что раньше считалось недоступным через API. Теперь видно, чем
+    управляются ставки (автостратегия или ручной режим), сколько кампания
+    может израсходовать за неделю, на какие цели Метрики она оптимизируется
+    и какая у неё модель атрибуции.
+
+    Каналы: Search — поиск, Network — РСЯ и сети. Стратегия NETWORK_DEFAULT
+    означает «как в поиске».
+
+    :param campaign_ids: список ID кампаний; без него — все кампании аккаунта
+    :param account: имя аккаунта или любой знакомый ID (счётчик, контейнер, логин)
+    """
+    data = access.campaign_strategies(account, campaign_ids)
+    if data.get("error"):
+        return data
+
+    rows = []
+    for cid, info in sorted((data.get("campaigns") or {}).items()):
+        channels = {}
+        for scope, scope_info in (info.get("scopes") or {}).items():
+            channels[scope] = {
+                "стратегия": scope_info.get("type"),
+                "недельный лимит ₽": scope_info.get("weekly_limit"),
+                "ограничение ставки ₽": scope_info.get("bid_ceiling"),
+                "средняя цена клика ₽": scope_info.get("average_cpc"),
+                "целевая цена конверсии ₽": scope_info.get("cpa"),
+                "цели": scope_info.get("goals"),
+            }
+        rows.append({
+            "id": cid,
+            "название": info.get("name"),
+            "состояние": info.get("state"),
+            "каналы": channels,
+            "приоритетные цели": info.get("priority_goals"),
+            "цели стратегии": info.get("strategy_goals"),
+            "модель атрибуции": info.get("attribution_model"),
+            "счётчики Метрики": info.get("counter_ids"),
+            "дневной бюджет ₽": info.get("daily_budget"),
+            "пакетная стратегия": info.get("package_strategy"),
+        })
+
+    return {
+        "campaigns": len(rows),
+        "requests": data.get("requests"),
+        "source": f"campaigns.get + {data.get('subfields_param')}",
+        "rows": rows,
+    }
+
+
+@mcp.tool()
 def check_api_connection(account: str | None = None) -> dict:
     """Proveryaet podklyuchenie k API Yandex.Direct dlya akkaunta."""
     try:

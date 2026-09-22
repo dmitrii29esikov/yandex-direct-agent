@@ -43,6 +43,9 @@
         706473673
       ],
       "login": "anton-anima",
+      "expected_budget": {
+        "710718813": 5500
+      },
       "priority_goals": {
         "710680794": [
           620230520,
