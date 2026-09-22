@@ -9,3 +9,5 @@ mcp_log.txt
 secrets/
 # otchety audita generiruyutsya zanovo
 data/audits/
+# rezevnye kopii reestra pri migratsiyah
+*.bak
