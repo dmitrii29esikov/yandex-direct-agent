@@ -349,10 +349,21 @@ def campaign_strategy(camp: dict) -> dict:
     block = next((camp.get(k) for k in STRATEGY_BLOCKS if camp.get(k)), None) or {}
 
     priority = []
+    # В приоритетных целях лежит ещё и цена: Value (микроединицы) — именно её
+    # алгоритм использует как максимум за заявку. Без неё нельзя понять, почему
+    # «оплата за конверсии» не покупает трафик (250 ₽ при рынке 2 700 ₽).
+    priority_values = {}
+    priority_values_micro = {}
     for item in _items(block.get("PriorityGoals")):
         gid = _goal_id(item)
         if gid is not None:
             priority.append(gid)
+        if gid is None or not isinstance(item, dict):
+            continue
+        value = item.get("Value")
+        if isinstance(value, (int, float)):
+            priority_values_micro[gid] = int(value)
+            priority_values[gid] = rub(value)
 
     bidding = block.get("BiddingStrategy") or {}
     scopes = {scope: _strategy_scope(bidding.get(scope)) for scope in SCOPES}
@@ -389,6 +400,8 @@ def campaign_strategy(camp: dict) -> dict:
         "attribution_model": block.get("AttributionModel"),
         "counter_ids": counters,
         "priority_goals": priority,
+        "priority_goal_values": priority_values,
+        "priority_goal_values_micro": priority_values_micro,
         "strategy_goals": {scope: scopes[scope]["goals"] for scope in SCOPES},
         "goals_all": list(dict.fromkeys(priority + strategy_goals)),
         "scopes": scopes,

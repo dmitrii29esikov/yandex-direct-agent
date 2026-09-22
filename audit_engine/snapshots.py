@@ -112,6 +112,8 @@ def build_snapshot(account: str, date_range: str | None = None) -> dict:
             "Strategy": {},
             "StrategyBlock": None,
             "PriorityGoals": [],
+            "PriorityGoalValues": {},
+            "PriorityGoalValuesMicro": {},
             "AttributionModel": None,
             "CounterIds": [],
             "Settings": {},
@@ -136,6 +138,8 @@ def build_snapshot(account: str, date_range: str | None = None) -> dict:
         bucket["Strategy"] = _strategy_snapshot(info)
         bucket["StrategyBlock"] = info.get("strategy_block")
         bucket["PriorityGoals"] = info.get("priority_goals") or []
+        bucket["PriorityGoalValues"] = info.get("priority_goal_values") or {}
+        bucket["PriorityGoalValuesMicro"] = info.get("priority_goal_values_micro") or {}
         bucket["AttributionModel"] = info.get("attribution_model")
         bucket["CounterIds"] = info.get("counter_ids") or []
         bucket["Settings"] = info.get("settings") or {}
@@ -313,6 +317,35 @@ def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
             else:
                 item["note"] = f"Изменилась настройка: {label}"
             changes.append(item)
+
+    # Цены целей: главный параметр закупки. Смена цены = смена того,
+    # за сколько кампания готова покупать заявку.
+    # Klyuchi tseley v snimke (JSON) — stroki, iz API — chisla: privodim k int,
+    # inache odnа i ta zhe tsel' popadaet v diff dvazhdy.
+    old_prices = {int(k): v for k, v in (before.get("PriorityGoalValues") or {}).items()}
+    new_prices = {int(k): v for k, v in (after.get("PriorityGoalValues") or {}).items()}
+    for goal_id in sorted(set(old_prices) | set(new_prices), key=lambda x: int(x)):
+        if old_prices.get(goal_id) == new_prices.get(goal_id):
+            continue
+        micros = before.get("PriorityGoalValuesMicro") or {}
+        rollback = None
+        if micros:
+            rollback = json.dumps({
+                "method": "update",
+                "params": {"Campaigns": [{"Id": campaign_id, block: {"PriorityGoals": [
+                    {"GoalId": int(g), "Value": int(v)} for g, v in micros.items()]}}]},
+            }, ensure_ascii=False)
+        changes.append({
+            "campaign_id": campaign_id,
+            "campaign_name": name,
+            "field": f"цена цели {goal_id}",
+            "before": old_prices.get(goal_id),
+            "after": new_prices.get(goal_id),
+            "severity": "warning",
+            "note": "Изменилась цена заявки в приоритетной цели: именно она "
+                    "управляет тем, за сколько кампания покупает результат",
+            "rollback": rollback,
+        })
 
     for field, label, severity in (("PriorityGoals", "Приоритетные цели", "warning"),
                                    ("AttributionModel", "Модель атрибуции", "info"),
