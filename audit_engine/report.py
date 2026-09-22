@@ -58,6 +58,11 @@ def render_markdown(ctx, findings, diagnoses, top: int = 10) -> str:
             lines.append(f"1. {step}")
         lines.append("")
 
+    # --- Ekonomika zayavok: kak nastroyeno i vo skolko obhodyatsya zayavki
+    economy = render_economy(ctx)
+    if economy:
+        lines.append(economy)
+
     # --- Svodka po kodam
     # Dinamika k proshlomu periodu — tol'ko v glubokom rezhime.
     if ctx.data.get("deltas"):
@@ -98,6 +103,150 @@ def render_markdown(ctx, findings, diagnoses, top: int = 10) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+SCOPE_SHORT = {
+    "PAY_FOR_CONVERSION": "оплата за конверсии",
+    "PAY_FOR_CONVERSION_MULTIPLE_GOALS": "оплата за конверсии, неск. целей",
+    "WB_MAXIMUM_CLICKS": "максимум кликов",
+    "WB_MAXIMUM_CONVERSION_RATE": "максимум конверсий",
+    "WB_MAXIMUM_CONVERSIONS": "максимум конверсий",
+    "AVERAGE_CPC": "средняя цена клика (ручная)",
+    "AVERAGE_CPA": "средняя цена конверсии",
+    "AVERAGE_CRR": "доля расходов",
+    "HIGHEST_POSITION": "наивысшая позиция (ручная)",
+    "SERVING_OFF": "выкл.",
+    "NETWORK_DEFAULT": "как в поиске",
+}
+
+
+def _scope_label(strategy_info):
+    """«поиск / сети» человеческим языком."""
+    if not strategy_info:
+        return "—"
+    scopes = strategy_info.get("scopes") or {}
+    parts = []
+    for scope in ("Search", "Network"):
+        stype = ((scopes.get(scope) or {}).get("type")) or "—"
+        parts.append(SCOPE_SHORT.get(stype, stype))
+    return " / ".join(parts)
+
+
+def _verdict(price, target, conversions, cost):
+    """Короткий вердикт по экономике кампании."""
+    if not cost:
+        return "не работала"
+    if not conversions:
+        return "**нет заявок**"
+    if not price:
+        return "цена неизвестна"
+    if target and price > target * 2:
+        return f"**переплата ×{price / target:.1f}**"
+    if target and price > target:
+        return f"дороже плана ×{price / target:.1f}"
+    return "в норме"
+
+
+def _goal_name(ctx, goal_id) -> str:
+    names = ctx.data.get("goal_names") or {}
+    return names.get(int(goal_id)) or f"цель {goal_id}"
+
+
+def render_economy(ctx) -> str:
+    """
+    Экономика заявок — главный раздел отчёта.
+
+    Отвечает на два вопроса владельца: как настроены кампании и во сколько
+    реально обходится заявка. Данные: приоритетные цели кампаний (целевые
+    конверсии), стратегии, лимиты и расход.
+    """
+    stats = ctx.data.get("stats")
+    if not stats:
+        return ""
+
+    target = ctx.target_cpa
+    market = ((ctx.record.get("direct") or {}).get("market_cpa")
+              or (ctx.record.get("goals") or {}).get("market_cpa"))
+
+    lines = ["## Экономика заявок", ""]
+    aims = []
+    if target:
+        aims.append(f"план — **{target:.0f} ₽** за заявку")
+    if market:
+        aims.append(f"рыночная цена — **{market:.0f} ₽**")
+    else:
+        aims.append("рыночная цена не задана (добавьте `direct.market_cpa` "
+                    "в реестр — тогда отчёт будет сравнивать с рынком)")
+    lines.append("Ориентиры: " + "; ".join(aims) + ".")
+    lines.append("")
+
+    strategies = ctx.data.get("strategies") or {}
+    targeted = ctx.data.get("stats_targeted") or {}
+    campaigns = ctx.data.get("campaigns") or []
+    if strategies:
+        lines.append("| Кампания | Стратегия: поиск / сети | Лимит ₽/нед | День ₽ | "
+                     "Расход | Заявки | Цена заявки | План | Вердикт |")
+        lines.append("|---|---|---|---|---|---|---|---|---|")
+        for c in campaigns:
+            cid = str(c.get("Id"))
+            info = strategies.get(int(cid)) if str(cid).isdigit() else None
+            base = stats.get(cid) or {}
+            tgt = targeted.get(cid) or {}
+            cost = base.get("cost") or 0
+            conversions = tgt.get("conversions") if tgt else base.get("conversions")
+            price = tgt.get("cpa") if tgt else base.get("cpa")
+            limit = None
+            daily = None
+            if info:
+                limits = [((info.get("scopes") or {}).get(s) or {}).get("weekly_limit")
+                          for s in ("Search", "Network")]
+                limits = [x for x in limits if x]
+                limit = max(limits) if limits else None
+                daily = info.get("daily_budget")
+            lines.append(
+                f"| {(c.get('Name') or '')[:38]} | {_scope_label(info)} | "
+                f"{_fnum(limit)} | {_fnum(daily)} | {_fnum(cost)} | "
+                f"{(conversions or 0):.0f} | {_fnum(price)} | {_fnum(target)} | "
+                f"{_verdict(price, target, conversions, cost)} |")
+        lines.append("")
+        lines.append("Заявки считаются по **приоритетным целям** кампаний — то есть "
+                     "по обращениям, а не по микродействиям счётчика.")
+        lines.append("")
+
+    # Разбивка по целям — есть только в глубоком режиме.
+    matrix = ctx.data.get("goal_matrix")
+    if matrix and matrix.get("by_campaign"):
+        lines.append("### По целям: за что именно платим")
+        lines.append("")
+        lines.append("| Кампания | Цель | Конверсий | Цена за цель |")
+        lines.append("|---|---|---|---|")
+        rows = []
+        for cid, bucket in matrix["by_campaign"].items():
+            campaign = next((c for c in campaigns if str(c.get("Id")) == str(cid)), {})
+            cost = (stats.get(str(cid)) or {}).get("cost") or 0
+            for goal_id, count in bucket.items():
+                if not count:
+                    continue
+                rows.append((count, campaign.get("Name") or str(cid),
+                             _goal_name(ctx, goal_id), cost / count))
+        rows.sort(key=lambda r: -r[0])
+        for count, name, goal_name, price in rows[:15]:
+            lines.append(f"| {name[:34]} | {goal_name[:44]} | {count:.0f} | {_fnum(price)} |")
+        lines.append("")
+        dead = matrix.get("dead_goals") or []
+        if dead:
+            lines.append("Цели без единого срабатывания за период: "
+                         + ", ".join(f"{_goal_name(ctx, g)} ({g})" for g in dead[:10]))
+            lines.append("")
+
+    return "\n".join(lines)
+
+
+def _fnum(value):
+    """Число для таблицы: 3 614 вместо 3614.04, и «—» вместо пустоты."""
+    if value is None:
+        return "—"
+    return f"{float(value):,.0f}".replace(",", " ")
 
 
 def render_remediation(ctx, diagnoses) -> str:

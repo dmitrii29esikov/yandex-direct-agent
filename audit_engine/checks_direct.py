@@ -174,16 +174,26 @@ def check_group_without_negatives(ctx):
 # Teksty obyavlenij
 # --------------------------------------------------------------------------
 
-@register("DIRECT.TEXT_LENGTH", "direct", "error", fixable="auto",
+@register("DIRECT.TEXT_LENGTH", "direct", "info", fixable="auto",
+          technical=True,
           description="Превышена длина заголовка или текста объявления")
 def check_text_length(ctx):
     if not ctx.loaded('ads'):
         return []
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     problems = {}
+    skipped_accepted = 0
     for ad in ctx.data.get("ads") or []:
         text_ad = ad.get("TextAd") or {}
         if not text_ad:
+            continue
+        # Moderatsiya — istochnik pravdy. Esli obyavlenie prinyato, znachit
+        # dlina v poryadke: u ЕПК tekst mozhet byt dlinnee 81, i my ne dolzhny
+        # tashchit' eto v otchet. Arhivnye tozhe propuskaem.
+        if str(ad.get("Status")) == "ACCEPTED":
+            skipped_accepted += 1
+            continue
+        if str(ad.get("State")) == "ARCHIVED":
             continue
         cid = str(ad.get("CampaignId"))
         issues = []
@@ -204,6 +214,7 @@ def check_text_length(ctx):
                    f"(заголовок {TITLE_MAX}, текст {TEXT_MAX} символов) — "
                    f"Директ отклоняет такие объявления",
             evidence={"объявлений с превышением": len(items),
+                      "пропущено принятых модерацией": skipped_accepted,
                       "примеры": items[:MAX_EXAMPLES]},
             fix="Сократить заголовок до 56 и текст до 81 символа",
             **_campaign_meta(campaign) if campaign
@@ -319,35 +330,87 @@ def check_no_daily_budget(ctx):
     return out
 
 
+def _economy(ctx, campaign) -> dict:
+    """
+    Экономика кампании: сколько стоит ЦЕЛЕВАЯ заявка.
+
+    Считаем по приоритетным целям кампании, а не по всем целям счётчика:
+    микродействия («переход в магазин», «вставка ссылки») иначе маскируют
+    отсутствие заявок. Если приоритетные цели прочитать не удалось — честно
+    помечаем источник в доказательствах.
+    """
+    base = _stats_for(ctx, campaign.get("Id")) or {}
+    result = {
+        "расход": base.get("cost"),
+        "клики": base.get("clicks"),
+        "все_конверсии": base.get("conversions"),
+        "цена_по_всем_целям": base.get("cpa"),
+        "конверсии": base.get("conversions"),
+        "цена": base.get("cpa"),
+        "цели": None,
+        "источник": "все цели счётчика" if base else None,
+    }
+    targeted = (ctx.data.get("stats_targeted") or {}).get(str(campaign.get("Id")))
+    if targeted:
+        result.update({
+            "конверсии": targeted.get("conversions") or 0,
+            "цена": targeted.get("cpa"),
+            "цели": targeted.get("goals"),
+            "источник": "приоритетные цели кампании",
+        })
+    return result
+
+
 @register("DIRECT.SPEND_NO_CONVERSION", "direct", "error",
-          description="Есть расход, но нет конверсий")
+          description="Есть расход, но нет целевых заявок")
 def check_spend_without_conversion(ctx):
+    """
+    Расход есть, а целевых заявок нет.
+
+    Считаем именно целевые конверсии (приоритетные цели кампании): иначе
+    микродействия вроде «переход в магазин» маскируют отсутствие заявок.
+    Обе цифры попадают в доказательства, чтобы не было вопросов, откуда число.
+    """
     if not ctx.loaded('campaigns', 'stats'):
         return []
     out = []
     for c in ctx.data.get("campaigns") or []:
-        stats = _stats_for(ctx, c.get("Id"))
-        cost = stats.get("cost") or 0
-        conversions = stats.get("conversions") or 0
-        if cost > 0 and conversions == 0:
-            out.append(dict(
-                title="Расход без конверсий",
-                detail=f"Израсходовано {cost:.0f} ₽ и ни одной конверсии. "
-                       f"Либо цели не настроены, либо трафик нецелевой",
-                evidence={"расход": cost, "конверсии": conversions,
-                          "клики": stats.get("clicks")},
-                fix="Проверить связку с целями Метрики и передачу цели в Директ, "
-                    "затем разобрать поисковые запросы",
-                blocking=True,
-                money=cost,
-                **_campaign_meta(c),
-            ))
+        eco = _economy(ctx, c)
+        cost = eco.get("расход") or 0
+        conversions = eco.get("конверсии") or 0
+        if cost <= 0 or conversions:
+            continue
+        all_conv = eco.get("все_конверсии") or 0
+        detail = f"Израсходовано {cost:.0f} ₽, целевых заявок — ноль."
+        if all_conv:
+            detail += (f" При этом по всем целям счётчика набралось {all_conv:.0f} — "
+                       f"это микродействия, а не обращения.")
+        detail += " Либо трафик нецелевой, либо цель выбрана не та."
+        out.append(dict(
+            title="Расход без целевых заявок",
+            detail=detail,
+            evidence={"расход": cost, "целевые конверсии": conversions,
+                      "все конверсии счётчика": all_conv,
+                      "источник конверсий": eco.get("источник"),
+                      "клики": eco.get("клики")},
+            fix="Разобрать площадки и запросы, затем сменить стратегию на оплату "
+                "за конверсии с приоритетными целями",
+            blocking=True,
+            money=cost,
+            **_campaign_meta(c),
+        ))
     return out
 
 
 @register("DIRECT.CPA_ABOVE_TARGET", "direct", "warning",
-          description="Фактическая цена конверсии выше целевой")
+          description="Цена целевой заявки выше целевой")
 def check_cpa_above_target(ctx):
+    """
+    Сравниваем цену ЦЕЛЕВОЙ заявки с целевой ценой из реестра.
+
+    Целевые заявки — по приоритетным целям кампании; если их прочитать
+    не удалось, в доказательствах видно, что считали по всем целям счётчика.
+    """
     if not ctx.loaded('campaigns', 'stats'):
         return []
     target = ctx.target_cpa
@@ -355,20 +418,26 @@ def check_cpa_above_target(ctx):
         return []
     out = []
     for c in ctx.data.get("campaigns") or []:
-        stats = _stats_for(ctx, c.get("Id"))
-        cpa = stats.get("cpa")
-        if cpa and cpa > target:
-            out.append(dict(
-                title="Дорогая конверсия",
-                detail=f"Фактическая цена конверсии {cpa:.0f} ₽ при целевой {target:.0f} ₽ "
-                       f"({cpa / target:.1f}× от цели)",
-                evidence={"CPA": cpa, "целевой CPA": target,
-                          "расход": stats.get("cost"),
-                          "конверсии": stats.get("conversions")},
-                fix="Снизить ставки или ограничить неэффективные площадки/запросы",
-                money=stats.get("cost"),
-                **_campaign_meta(c),
-            ))
+        eco = _economy(ctx, c)
+        cpa = eco.get("цена")
+        if not cpa or cpa <= target:
+            continue
+        out.append(dict(
+            title="Дорогая заявка",
+            detail=f"Цена целевой заявки {cpa:.0f} ₽ при целевой {target:.0f} ₽ "
+                   f"({cpa / target:.1f}× от цели): расход "
+                   f"{eco.get('расход') or 0:.0f} ₽ на "
+                   f"{eco.get('конверсии') or 0:.0f} заявок",
+            evidence={"цена заявки": round(cpa, 2), "целевой CPA": target,
+                      "расход": eco.get("расход"),
+                      "конверсии": eco.get("конверсии"),
+                      "источник конверсий": eco.get("источник"),
+                      "прочие конверсии счётчика": eco.get("все_конверсии")},
+            fix="Снизить ставки, исключить неэффективные площадки и запросы, "
+                "перейти на автостратегию с целевой ценой конверсии",
+            money=eco.get("расход"),
+            **_campaign_meta(c),
+        ))
     return out
 
 

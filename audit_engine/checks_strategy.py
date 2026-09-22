@@ -188,6 +188,19 @@ def check_strategy_goal_unknown(ctx):
             blocking=True,
             **_meta(c),
         ))
+    # Esli po etoy tseli konversii VSE-TAKI schitayutsya (byvaet: tsel sdelana
+    # v interfeise inache, chem vidit Management API), eto ne oshibka, a vopros
+    # k nastroikam: ponizhaem uroven i dobavlyaem fakt v tekst.
+    for item in out:
+        targeted = (ctx.data.get("stats_targeted") or {}).get(item["object_id"]) or {}
+        conversions = targeted.get("conversions") or 0
+        if conversions:
+            item["severity"] = "info"
+            item["detail"] += (" При этом Директ по этой цели конверсии "
+                               f"считает ({conversions:.0f} за период) — "
+                               f"вероятно, цель создана в интерфейсе иначе, "
+                               f"чем видит API. Проверьте, что это та цель.")
+            item["money"] = None
     return out
 
 

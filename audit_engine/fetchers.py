@@ -239,6 +239,79 @@ def fetch_stats(ctx, date_range: str):
     ctx.data["stats"] = stats
 
 
+def fetch_stats_targeted(ctx):
+    """
+    Целевые конверсии по приоритетным целям кампаний: во сколько обходится заявка.
+
+    Запрашиваем СТРОГО по одной кампании с её собственными целями. Почему не
+    одним отчётом на весь аккаунт: если передать цели разных кампаний сразу,
+    Direct раскидывает значения по колонкам целей непредсказуемо — в строке
+    кампании появлялись конверсии чужих целей (проверено 22.09.2026: у LoveScore
+    в отчёте оказалась цель 13 из OUTLETIKA, а у неё самой нет такой цели).
+    Расход берём из обычной статистики, чтобы не удваивать его.
+    """
+    goals_by_campaign = (ctx.data.get("priority_goals") or {}).get("goals") or {}
+    if not goals_by_campaign or ctx.data.get("campaigns") is None:
+        ctx.data["stats_targeted"] = None
+        if ctx.data.get("campaigns") is not None:
+            ctx.note("Целевые заявки не посчитаны: приоритетные цели не прочитаны")
+        return
+
+    from . import direct_reports as dr
+
+    stats = ctx.data.get("stats") or {}
+    result = {}
+    errors = 0
+    for campaign in ctx.data.get("campaigns") or []:
+        cid = campaign.get("Id")
+        try:
+            goals = goals_by_campaign.get(int(cid)) or []
+        except (TypeError, ValueError):
+            goals = []
+        cost = (stats.get(str(cid)) or {}).get("cost") or 0
+        if not goals or not cost:
+            result[str(cid)] = {
+                "conversions": 0, "cpa": None, "cost": cost, "goals": goals,
+                "reason": "нет целей" if not goals else "нет расхода",
+            }
+            continue
+
+        found = 0
+        failed = False
+        for start in range(0, len(goals), 10):
+            chunk = goals[start:start + 10]
+            data = dr.run_report(ctx.account, "CUSTOM_REPORT",
+                                 ["CampaignId", "Conversions"],
+                                 period=ctx.date_range,
+                                 filters=dr._campaign_filter([cid]), goals=chunk)
+            if data.get("error"):
+                ctx.add_error(f"direct/целевые конверсии/{cid}", data["error"])
+                errors += 1
+                failed = True
+                break
+            # При передаче Goals Direct возвращает разбивку по целям:
+            # колонки «Conversions_<цель>_<модель>», а не одну «Conversions».
+            columns = [c for c in (data.get("columns") or [])
+                       if c.startswith("Conversions")]
+            for row in data["rows"]:
+                found += sum(dr.num(row.get(col)) for col in columns)
+        if failed:
+            continue
+
+        result[str(cid)] = {
+            "conversions": found,
+            "cpa": round(cost / found, 2) if found else None,
+            "cost": cost,
+            "goals": goals,
+        }
+
+    ctx.data["stats_targeted"] = result
+    ctx.data["stats_targeted_goals"] = sorted(
+        {int(g) for items in goals_by_campaign.values() for g in items})
+    ctx.note(f"Целевые заявки посчитаны по приоритетным целям: {len(result)} кампаний"
+             + (f", ошибок запросов: {errors}" if errors else ""))
+
+
 def fetch_metrica(ctx):
     """Schetchiki i ih celi. Predstvitel'skij dostup — cherez ulogin."""
     counters_data = access.metrica_get(ctx.account, "/management/v1/counters")

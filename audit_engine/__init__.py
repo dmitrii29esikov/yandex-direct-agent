@@ -8,6 +8,7 @@ To zhe samoe dlya fikserov (FIXERS).
 
 from . import checks_direct   # noqa: F401
 from . import checks_strategy  # noqa: F401
+from . import checks_economy   # noqa: F401
 from . import checks_metrica  # noqa: F401
 from . import checks_ytm      # noqa: F401
 from . import checks_cross    # noqa: F401

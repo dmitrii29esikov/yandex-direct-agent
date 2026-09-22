@@ -36,6 +36,9 @@ class Finding:
     money: float | None = None
     blocking: bool = False       # blokiruet li eto drugie ispravleniya
     impact: int = 0
+    # Tehnicheskaya nahodka: v otchet i diagnozy ne popadaet, ostaetsya v XLSX.
+    # Tak pomechaem to, chto na konversii i den'gi ne vliyaet (dliny tekstov).
+    technical: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -120,17 +123,24 @@ class Check:
     fn: callable
     description: str = ""
     fixable: str = "manual"
+    technical: bool = False
 
 
 CHECKS: list = []
 
 
 def register(code: str, contour: str, severity: str = "warning",
-             description: str = "", fixable: str = "manual"):
-    """Dekorator: registriruet proverku v reestre."""
+             description: str = "", fixable: str = "manual",
+             technical: bool = False):
+    """Dekorator: registriruet proverku v reestre.
+
+    technical=True — nahodka ostaetsya v dannvh (XLSX), no ne idet v otchet
+    i v diagnozy: ona ne vliyaet na konversii i den'gi.
+    """
     def deco(fn):
         CHECKS.append(Check(code=code, contour=contour, severity=severity,
-                            fn=fn, description=description, fixable=fixable))
+                            fn=fn, description=description, fixable=fixable,
+                            technical=technical))
         return fn
     return deco
 
@@ -155,6 +165,7 @@ def run_checks(ctx) -> tuple:
         for item in produced:
             item.setdefault("severity", check.severity)
             item.setdefault("fixable", check.fixable)
+            item.setdefault("technical", check.technical)
             finding = Finding(
                 code=item.pop("code", check.code),
                 contour=check.contour,

@@ -118,6 +118,8 @@ def build_context(account: str | None = None,
     # baly na arhivnye kampanii, kotorye v otchet ne popadut.
     _safe(ctx, "strategies", fetchers.fetch_strategies, ctx)
     _safe(ctx, "stats", fetchers.fetch_stats, ctx, date_range)
+    # TSelevye konversii po prioritetnym tselyam — na nih stoit «ekonomika zayavok».
+    _safe(ctx, "stats/targeted", fetchers.fetch_stats_targeted, ctx)
     _safe(ctx, "metrica", fetchers.fetch_metrica, ctx)
     if deep:
         _safe(ctx, "deep", fetchers.fetch_deep, ctx, date_range)
@@ -136,7 +138,16 @@ def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
         return {"error": ctx.errors[0]["error"]}
 
     findings, failures = run_checks(ctx)
-    diagnoses = diagnose(ctx.account, findings, target_cpa=ctx.target_cpa)
+
+    # Tehnicheskie nahodki (dliny tekstov i prochaya kosmetika) ostayutsya v XLSX,
+    # no ne idut ni v diagnozy, ni v otchet: na konversii oni ne vliyayut.
+    reportable = [f for f in findings if not f.technical]
+    technical = [f for f in findings if f.technical]
+    if technical:
+        ctx.note(f"Технических находок (оформление, не результат): {len(technical)} — "
+                 f"подробности в XLSX, лист «Находки»")
+
+    diagnoses = diagnose(ctx.account, reportable, target_cpa=ctx.target_cpa)
 
     result = {
         "account": ctx.account,
@@ -147,16 +158,17 @@ def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
         "campaigns_audited": len(ctx.data.get("campaigns") or []),
         "checks_run": len(CHECKS),
         "findings_total": len(findings),
-        "errors": sum(1 for f in findings if f.severity == "error"),
-        "warnings": sum(1 for f in findings if f.severity == "warning"),
-        "infos": sum(1 for f in findings if f.severity == "info"),
+        "technical_findings": len(technical),
+        "errors": sum(1 for f in reportable if f.severity == "error"),
+        "warnings": sum(1 for f in reportable if f.severity == "warning"),
+        "infos": sum(1 for f in reportable if f.severity == "info"),
         "auto_fixable": sum(1 for f in findings if f.fixable == "auto"),
         "diagnoses": [d.to_dict() for d in diagnoses[:top]],
         "top_diagnosis": diagnoses[0].title if diagnoses else None,
         "not_checked": ctx.errors,
         "check_failures": failures,
         "notes": ctx.notes,
-        "markdown": report.render_markdown(ctx, findings, diagnoses, top=top),
+        "markdown": report.render_markdown(ctx, reportable, diagnoses, top=top),
     }
 
     if save_files:
