@@ -418,3 +418,41 @@ def check_status_payment(ctx):
         blocking=True,
         object_type="account", object_id=ctx.account,
     )]
+
+
+@register("DIRECT.CLICKS_WITHOUT_COST", "direct", "info",
+          description="Есть клики, но расход не начисляется")
+def check_clicks_without_cost(ctx):
+    """
+    Klikи est', a rashod nol' kazhdyj den' perioda.
+
+    Chasche vsego eto NЕ oshibka i NE poterи: kampaniya rabotaet po modeli
+    oplaty za konversii — klikи besplatny, platim tol'ko za konversiyu.
+    Togda nol' rashoda pri nule konversij oznachaet, chto model' rabotaet kak
+    zamyshleno. Vtoroj variant — zaderzhka atributsii rashodov v otchete.
+
+    Strategiyu cherez API prochitat' nel'zya: servis campaigns ne podderzhivaet
+    pole so strategiej. Poetomu formuliruem ostromozhno i otpravlyaem cheloveka
+    posmotret' v interfejs.
+    """
+    if not ctx.loaded("campaigns", "stats"):
+        return []
+
+    out = []
+    for campaign in ctx.data.get("campaigns") or []:
+        stats = (ctx.data.get("stats") or {}).get(str(campaign.get("Id"))) or {}
+        clicks = stats.get("clicks") or 0
+        cost = stats.get("cost") or 0
+        if clicks > 0 and cost == 0:
+            out.append(dict(
+                title="Клики без расхода",
+                detail=f"{int(clicks)} кликов и 0 ₽ расхода за период. Скорее всего "
+                       f"кампания работает по модели оплаты за конверсии: клики "
+                       f"бесплатны, платим только за конверсию. Проверьте стратегию "
+                       f"в интерфейсе: через API она не читается.",
+                evidence={"клики": clicks, "расход": cost,
+                          "конверсии": stats.get("conversions")},
+                fix="Убедиться, что модель оплаты и цель выбраны осознанно",
+                **_campaign_meta(campaign),
+            ))
+    return out

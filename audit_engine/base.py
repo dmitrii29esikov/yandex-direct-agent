@@ -78,18 +78,30 @@ def compute_impact(severity: str, money: float | None = None,
     """
     score = SEVERITY_BASE.get(severity, 5)
 
-    # Dengi pod riskom: 10 000 rub. i vyshe dayut maksimum 25 ballov.
+    # Dengi pod riskom: 10 000 rub. i vyshe dayut maksimum 32 balla.
+    # Ves deneg samyj bol'shoj v formule — smysl audita v tom, skol'ko deneg
+    # nа konu, a ne skol'ko tekhnicheskih nedochetov najdeno.
     if money:
-        score += min(25, int(25 * min(1.0, math.log10(1 + max(money, 0)) / 4)))
+        score += min(32, int(32 * min(1.0, math.log10(1 + max(money, 0)) / 4)))
 
-    # Rashod bez konversij — samyj dorogoj signal v audite.
+    # Rashod bez konversij — samyj dorogoj signal v audite, no ego ves zavisit
+    # ot masshtaba: kampaniya s 200 rub. i kampaniya s 5 000 rub. bez konversij —
+    # problemy raznoj tyazhesti. Bez etoj gradatsii malen'kaya kampaniya
+    # obgonyala by krupnuyu s dorogim konversiyami.
     if spend > 0 and conversions == 0:
-        score += 25
+        if spend >= 3000:
+            score += 25
+        elif spend >= 1000:
+            score += 18
+        elif spend >= 300:
+            score += 10
+        else:
+            score += 4
     elif cpa and target_cpa and cpa > target_cpa:
         score += 15
 
     if blocking:
-        score += 15
+        score += 10
 
     score += FIX_COST.get(fixable, 0)
 

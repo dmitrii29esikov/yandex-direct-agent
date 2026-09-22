@@ -183,13 +183,14 @@ def rollback(log_file: str, confirm: bool = False) -> dict:
 
 
 def run_apply(account: str | None = None, date_range: str = "LAST_30_DAYS",
-              confirm: bool = False, codes: list | None = None) -> dict:
+              confirm: bool = False, codes: list | None = None,
+              only_active: bool = False) -> dict:
     """
     Polnyj tsikl: audit -> plan -> (pri confirm) ispolnenie -> zhurnal.
 
     Bez confirm=True ni odin zapros na izmenenie ne otpravlyaetsya.
     """
-    ctx = build_context(account, date_range)
+    ctx = build_context(account, date_range, only_active=only_active)
     if ctx.errors and ctx.errors[0]["label"] == "registry":
         return {"error": ctx.errors[0]["error"]}
 

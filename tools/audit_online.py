@@ -14,7 +14,8 @@ from audit_engine import CHECKS, FIXERS, rollback, run_apply, run_audit
 def audit_account(account: str | None = None,
                   date_range: str = "LAST_30_DAYS",
                   top: int = 10,
-                  save_files: bool = True) -> dict:
+                  save_files: bool = True,
+                  only_active: bool = False) -> dict:
     """
     Полный аудит аккаунта по API: Директ + Метрика + Tag Manager.
 
@@ -28,9 +29,11 @@ def audit_account(account: str | None = None,
     :param date_range: период статистики (LAST_7_DAYS, LAST_30_DAYS, THIS_MONTH, ...)
     :param top: сколько диагнозов вернуть
     :param save_files: сохранять ли XLSX и remediation.md
+    :param only_active: True — только запущенные кампании (State = ON),
+                        архив и пауза не попадут в отчёт
     """
     return run_audit(account=account, date_range=date_range, top=top,
-                     save_files=save_files)
+                     save_files=save_files, only_active=only_active)
 
 
 @mcp.tool()
