@@ -59,6 +59,40 @@ def _safe(ctx, label, fn, *args, **kwargs):
     return None
 
 
+def _drop_archived(ctx):
+    """
+    Убираем архив из аудита.
+
+    Зачем: архивные кампании не расходуют бюджет, но удлиняют прогон (стратегии,
+    отчёты по целям, площадкам, группам и запросам идут по списку кампаний)
+    и зашумляют отчёт: «мёртвые» цели и группы, которых давно нет в работе.
+    """
+    campaigns = ctx.data.get("campaigns")
+    if campaigns is None:
+        ctx.note("Список кампаний не получен — фильтр архива не применён")
+        return
+
+    ctx.data["campaigns_total"] = len(campaigns)
+    live = [c for c in campaigns if c.get("State") != "ARCHIVED"]
+    archived = len(campaigns) - len(live)
+    keep = {str(c.get("Id")) for c in live}
+
+    def _filter(rows):
+        if rows is None:
+            return None
+        return [r for r in rows if str(r.get("CampaignId")) in keep]
+
+    ctx.data["campaigns"] = live
+    for key in ("adgroups", "ads", "keywords"):
+        ctx.data[key] = _filter(ctx.data.get(key))
+    ctx.data["campaigns_archived"] = archived
+    ctx.data["archived_excluded"] = True
+    if archived:
+        ctx.note(f"Архивные кампании не аудировались: {archived} из {len(campaigns)} "
+                 f"(в работе {len(live)}) — при необходимости "
+                 f"audit_account(..., include_archived=True)")
+
+
 def _keep_only_active(ctx):
     """
     Ostavlyaem tolko zapuschennye kampanii (State == ON).
@@ -80,7 +114,7 @@ def _keep_only_active(ctx):
             return None
         return [r for r in rows if str(r.get("CampaignId")) in keep]
 
-    ctx.data["campaigns_total"] = len(campaigns)
+    ctx.data.setdefault("campaigns_total", len(campaigns))
     ctx.data["campaigns"] = active
     for key in ("adgroups", "ads", "keywords"):
         ctx.data[key] = _filter(ctx.data.get(key))
@@ -93,7 +127,8 @@ def _keep_only_active(ctx):
 def build_context(account: str | None = None,
                   date_range: str = DEFAULT_RANGE,
                   only_active: bool = False,
-                  deep: bool = False) -> Ctx:
+                  deep: bool = False,
+                  include_archived: bool = False) -> Ctx:
     """
     Sобираem kontekst akkaunta: reestr + dannye vseh tryoh konturov.
 
@@ -112,6 +147,9 @@ def build_context(account: str | None = None,
     ctx.target_cpa = (ctx.record.get("goals") or {}).get("target_cpa")
 
     _safe(ctx, "direct", fetchers.fetch_direct, ctx)
+    # Архив в аудит не берём: он денег не тратит, а прогон удлиняет и шумит.
+    if not include_archived:
+        _drop_archived(ctx)
     if only_active:
         _keep_only_active(ctx)
     # Strategii chitaem posle fil'tra «tol'ko zapuschennye»: tak my ne tratim
@@ -130,10 +168,11 @@ def build_context(account: str | None = None,
 
 def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
               top: int = 10, save_files: bool = True,
-              only_active: bool = False, deep: bool = False) -> dict:
-    """Polnyj audit odnogo akkaunta. Tol'ko chtenie."""
+              only_active: bool = False, deep: bool = False,
+              include_archived: bool = False) -> dict:
+    """Полный аудит одного аккаунта. Только чтение."""
     ctx = build_context(account, date_range, only_active=only_active,
-                        deep=deep)
+                        deep=deep, include_archived=include_archived)
     if ctx.errors and ctx.errors[0]["label"] == "registry":
         return {"error": ctx.errors[0]["error"]}
 
@@ -154,6 +193,8 @@ def run_audit(account: str | None = None, date_range: str = DEFAULT_RANGE,
         "date_range": date_range,
         "only_active": only_active,
         "deep": deep,
+        "include_archived": include_archived,
+        "campaigns_archived": ctx.data.get("campaigns_archived"),
         "campaigns_total": ctx.data.get("campaigns_total"),
         "campaigns_audited": len(ctx.data.get("campaigns") or []),
         "checks_run": len(CHECKS),

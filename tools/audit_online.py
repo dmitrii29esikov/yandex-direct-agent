@@ -16,7 +16,8 @@ def audit_account(account: str | None = None,
                   top: int = 10,
                   save_files: bool = True,
                   only_active: bool = False,
-                  deep: bool = False) -> dict:
+                  deep: bool = False,
+                  include_archived: bool = False) -> dict:
     """
     Полный аудит аккаунта по API: Директ + Метрика + Tag Manager.
 
@@ -31,14 +32,18 @@ def audit_account(account: str | None = None,
     :param top: сколько диагнозов вернуть
     :param save_files: сохранять ли XLSX и remediation.md
     :param only_active: True — только запущенные кампании (State = ON),
-                        архив и пауза не попадут в отчёт
+                        пауза тоже не попадёт в отчёт
+    :param include_archived: True — включить архивные кампании. По умолчанию
+                        архив НЕ аудируется: он не тратит бюджет, а прогон
+                        удлиняет и добавляет шум («мёртвые» цели и группы)
     :param deep: True — добавить тяжёлые отчёты: сравнение периодов с прошлым,
                  аномалии, поисковые запросы, площадки и группы без целевых
                  конверсий, цели без срабатываний. Прогон становится дольше
                  на несколько минут, зато аудит выходит на уровень ручного
     """
     return run_audit(account=account, date_range=date_range, top=top,
-                     save_files=save_files, only_active=only_active, deep=deep)
+                     save_files=save_files, only_active=only_active, deep=deep,
+                     include_archived=include_archived)
 
 
 @mcp.tool()
