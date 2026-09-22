@@ -179,9 +179,20 @@ def discover_accounts(account: str | None = None, save: bool = False) -> dict:
             entry["direct_clients"] = (clients or {}).get("clients", [])
         findings.append(entry)
 
+    # Владельцы, которые уже закреплены за каким-то аккаунтом. Иначе повторный
+    # прогон со save=True создаст дубликат вроде "antonanima" рядом с "anton".
+    claimed_logins = set()
+    if save:
+        for rec in store.all_accounts().values():
+            login = ((rec.get("metrica") or {}).get("ulogin") or "").lower()
+            if login:
+                claimed_logins.add(login)
+
     saved = []
     if save:
         for entry in findings:
+            if entry["owner_login"].lower() in claimed_logins:
+                continue
             slug = _slug(entry["owner_login"])
             if store.resolve(slug) is None and slug not in store.all_accounts():
                 chief = (entry["direct_clients"] or [{}])[0].get("chief_login")

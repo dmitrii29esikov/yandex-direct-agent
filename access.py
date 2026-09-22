@@ -73,9 +73,11 @@ def direct(account: str | None = None) -> YandexDirectAPIClient:
             f"Вызовите set_account_tokens(account='{name}', direct_token=...) "
             f"или переключите аккаунт в режим agency."
         )
+    # Client-Login — только для агентского доступа. В режиме token он не нужен
+    # и вреден: токен уже принадлежит самому рекламодателю.
     return YandexDirectAPIClient(
         token=token,
-        client_login=d.get("client_login"),
+        client_login=None,
         sandbox=_sandbox(),
     )
 
@@ -233,8 +235,12 @@ def describe(account: str | None = None) -> dict:
     info = {
         "account": name,
         "title": acc.get("title"),
+        "person": acc.get("person"),
+        "role": acc.get("role"),
+        "aliases": acc.get("aliases") or [],
         "direct": {
             "mode": d.get("mode", "token"),
+            "login": d.get("login"),
             "client_login": d.get("client_login"),
             "client_id": d.get("client_id"),
             "token": store.mask(

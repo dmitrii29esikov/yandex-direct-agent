@@ -4,10 +4,10 @@
 #
 # Primery:
 #   python cli.py accounts
-#   python cli.py audit default
-#   python cli.py --account printyard audit
-#   python cli.py apply default            (dry-run, nichego ne menyaet)
-#   python cli.py apply default --confirm  (primenit' pravki)
+#   python cli.py audit dmitrii
+#   python cli.py --account anton audit
+#   python cli.py apply dmitrii           (dry-run, nichego ne menyaet)
+#   python cli.py apply dmitrii --confirm (primenit' pravki)
 #   python cli.py stats --period LAST_7_DAYS
 
 import sys
@@ -58,12 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Primery:\n"
             "  python cli.py accounts                      akkaunty reestra\n"
-            "  python cli.py check default                 dostup po 3 konturam\n"
+            "  python cli.py check dmitrii                dostup po 3 konturam\n"
             "  python cli.py discover                      chto nam uzhe vydali\n"
-            "  python cli.py audit default                 polnyj audit\n"
-            "  python cli.py --account printyard audit     audit drugogo akkaunta\n"
-            "  python cli.py apply default                 dry-run pravok\n"
-            "  python cli.py apply default --confirm       primenit' pravki\n"
+            "  python cli.py audit dmitrii                polnyj audit\n"
+            "  python cli.py --account anton audit        audit klienta\n"
+            "  python cli.py --account 106104483 audit    akkaunt po ID schetchika\n"
+            "  python cli.py apply anton                  dry-run pravok\n"
+            "  python cli.py apply anton --confirm        primenit' pravki\n"
             "  python cli.py rollback apply_....json       otkat' pravki\n"
             "  python cli.py checks                        spisok proverok\n"
             "  python cli.py fixers                        chto pravitsya samo\n"

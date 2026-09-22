@@ -22,9 +22,10 @@ def _money(value):
 def render_markdown(ctx, findings, diagnoses, top: int = 10) -> str:
     """Otchet dlya cheloveka: snachala vyvody, potom tsifry."""
     lines = []
-    lines.append(f"# Аудит аккаунта `{ctx.account}`")
+    title = (getattr(ctx, "record", None) or {}).get("title") or ctx.account
+    lines.append(f"# Аудит: {title}")
     lines.append("")
-    lines.append(f"Период статистики: **{ctx.date_range}** · "
+    lines.append(f"Аккаунт: `{ctx.account}` · период: **{ctx.date_range}** · "
                  f"кампаний: **{len(ctx.data.get('campaigns') or [])}** · "
                  f"находок: **{len(findings)}** "
                  f"(ошибок: {sum(1 for f in findings if f.severity == 'error')}, "

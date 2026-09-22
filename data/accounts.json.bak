@@ -1,48 +1,40 @@
 {
-  "dmitrii": {
-    "title": "Дмитрий Есиков",
+  "default": {
+    "title": "Аккаунт по умолчанию (.env)",
     "direct": {
       "mode": "token",
-      "token_ref": "dmitrii",
-      "client_login": null,
-      "login": "dmitrii-esikov",
-      "client_id": 105904845
+      "token_ref": "default",
+      "client_login": null
     },
     "metrica": {
       "counter_ids": [
         105457694
       ],
       "ulogin": null,
-      "token_ref": "dmitrii"
+      "token_ref": "default"
     },
     "ytm": {
       "container_ids": [
         872525
       ],
-      "token_ref": "dmitrii"
+      "token_ref": "default"
     },
-    "goals": {},
-    "aliases": [
-      "default"
-    ],
-    "person": "Дмитрий Есиков",
-    "role": "владелец"
+    "goals": {}
   },
-  "anton": {
-    "title": "Антон Есиков",
+  "printyard": {
+    "title": "Аккаунт Антона: Print Yard, Кладовкер, Outletika, LoveScore, Анима Спейс",
     "direct": {
       "mode": "token",
       "client_login": null,
-      "client_id": 95907155,
-      "token_ref": "anton",
+      "client_id": null,
+      "token_ref": "printyard",
       "campaign_ids": [
         114807904,
         117845305,
         710718813,
         710909401,
         706473673
-      ],
-      "login": "anton-anima"
+      ]
     },
     "metrica": {
       "counter_ids": [
@@ -61,15 +53,10 @@
         1334804,
         1346322
       ],
-      "token_ref": "dmitrii"
+      "token_ref": "default"
     },
     "goals": {
       "target_cpa": 550
-    },
-    "aliases": [
-      "printyard"
-    ],
-    "person": "Антон Есиков",
-    "role": "клиент"
+    }
   }
 }

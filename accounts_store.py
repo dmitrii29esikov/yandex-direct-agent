@@ -90,24 +90,27 @@ def ensure_bootstrap():
         "ytm": os.getenv("YANDEX_YTM_TOKEN"),
     }
 
+    name = os.getenv("DEFAULT_ACCOUNT") or "default"
     accounts = {
-        "default": {
+        name: {
             "title": os.getenv("DEFAULT_ACCOUNT_TITLE", "Аккаунт по умолчанию (.env)"),
+            "person": os.getenv("DEFAULT_ACCOUNT_PERSON") or None,
+            "aliases": ["default"] if name != "default" else [],
             "direct": {
                 "mode": "token",
-                "token_ref": "default",
+                "token_ref": name,
                 "client_login": os.getenv("DEFAULT_DIRECT_LOGIN") or None,
             },
-            "metrica": {"counter_ids": [], "ulogin": None, "token_ref": "default"},
-            "ytm": {"container_ids": [1007795], "token_ref": "default"},
+            "metrica": {"counter_ids": [], "ulogin": None, "token_ref": name},
+            "ytm": {"container_ids": [], "token_ref": name},
             "goals": {},
         }
     }
-    secrets["default"] = {k: v for k, v in token_map.items() if v}
+    secrets[name] = {k: v for k, v in token_map.items() if v}
 
     _write_accounts(accounts)
     _write_secrets(secrets)
-    log.info("Создан реестр аккаунтов: аккаунт 'default' из .env")
+    log.info("Создан реестр аккаунтов: аккаунт '%s' из .env", name)
     return accounts
 
 
@@ -199,6 +202,13 @@ def resolve(identifier) -> str | None:
     if key in accounts:
         return key
 
+    # Псевдонимы: под старым техническим именем аккаунт должен находиться и после
+    # переименования по владельцу. Иначе ломаются скрипты, память и документация.
+    lowered = key.lower()
+    for name, acc in accounts.items():
+        if lowered in {str(a).lower() for a in (acc.get("aliases") or [])}:
+            return name
+
     for name, acc in accounts.items():
         direct = acc.get("direct") or {}
         metrica = acc.get("metrica") or {}
@@ -212,7 +222,10 @@ def resolve(identifier) -> str | None:
             return name
         if key and key.lower() in {
             str(direct.get("client_login") or "").lower(),
+            str(direct.get("login") or "").lower(),
             str(direct.get("client_id") or "").lower(),
+            str(metrica.get("ulogin") or "").lower(),
+            str(acc.get("person") or "").lower(),
         }:
             return name
     return None
