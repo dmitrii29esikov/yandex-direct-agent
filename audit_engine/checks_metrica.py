@@ -142,3 +142,73 @@ def check_counter_code_status(ctx):
                 **_counter_meta(counter),
             ))
     return out
+
+
+@register("METRICA.GOALS_SCOPE", "metrica", "info",
+          description="Какие цели счётчика работают в Директе, а какие — только аналитика")
+def check_goals_scope(ctx):
+    """
+    Делим цели счётчика на две группы.
+
+    В Директе участвуют только те цели, что выбраны в стратегиях кампаний:
+    именно на них обучаются алгоритмы и за них мы платим. Остальные цели —
+    воронка и аналитика Метрики: они показывают поведение людей на сайте,
+    но в закупке не участвуют, и считать по ним цену заявки нельзя.
+    """
+    counters_goals = ctx.data.get("goals")
+    if not counters_goals:
+        return []
+
+    resolved = ctx.data.get("priority_goals") or {}
+    direct_ids = sorted({int(g) for gs in (resolved.get("api") or {}).values()
+                         for g in gs})
+    if not direct_ids:
+        direct_ids = sorted({int(g) for gs in (resolved.get("goals") or {}).values()
+                             for g in gs})
+
+    all_ids = []
+    for goals in counters_goals.values():
+        for goal in goals or []:
+            gid = goal.get("id")
+            if gid and int(gid) not in all_ids:
+                all_ids.append(int(gid))
+    if not all_ids:
+        return []
+
+    analytics_ids = [g for g in all_ids if g not in direct_ids]
+    names = ctx.data.get("goal_names") or {}
+
+    def label(goal_id):
+        return names.get(goal_id) or f"цель {goal_id}"
+
+    if not direct_ids:
+        return [dict(
+            severity="warning",
+            title="В кампаниях Директа не выбрана ни одна цель Метрики",
+            detail="На счётчике есть цели, но ни одна из них не включена в стратегии "
+                   "кампаний: алгоритмы не получают сигнала о конверсиях и обучаться "
+                   "не могут",
+            evidence={"целей на счётчиках": len(all_ids),
+                      "примеры": [label(g) for g in all_ids[:10]]},
+            fix="Выбрать цель конверсии в стратегии каждой кампании",
+            object_type="account", object_id=ctx.account,
+        )]
+
+    if not analytics_ids:
+        return []
+
+    return [dict(
+        title="Цели счётчика: часть работает в Директе, часть — только аналитика",
+        detail=f"В кампаниях Директа участвуют {len(direct_ids)} целей: "
+               f"{', '.join(label(g) for g in direct_ids[:6])}. "
+               f"Ещё {len(analytics_ids)} целей счётчика в кампании не включены — "
+               f"это аналитика Метрики: она нужна для разбора поведения на сайте, "
+               f"но на закупку и обучение алгоритмов не влияет, и цену заявки "
+               f"по ней считать нельзя",
+        evidence={"в Директе": [label(g) for g in direct_ids],
+                  "только аналитика": [label(g) for g in analytics_ids[:20]],
+                  "всего целей": len(all_ids)},
+        fix="Ничего править не нужно — это справка. Меняем только те цели, "
+            "что выбраны в стратегиях кампаний",
+        object_type="account", object_id=ctx.account,
+    )]

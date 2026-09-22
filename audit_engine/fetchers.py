@@ -483,12 +483,25 @@ def fetch_deep(ctx, period: str):
                 names[int(goal["id"])] = goal.get("name")
     ctx.data["goal_names"] = names
 
-    goals_all = []
+    # В расчётах по деньгам участвуют ТОЛЬКО цели, включённые в кампании Директа
+    # (приоритетные цели стратегий). Остальные цели счётчика Метрики — аналитика:
+    # они не влияют на обучение алгоритмов и на закупку, поэтому «мёртвыми»
+    # их считать нельзя.
+    all_goals = []
     for goals in (ctx.data.get("goals") or {}).values():
         for goal in goals or []:
             gid = goal.get("id")
-            if gid and int(gid) not in goals_all:
-                goals_all.append(int(gid))
+            if gid and int(gid) not in all_goals:
+                all_goals.append(int(gid))
+
+    direct_goals = sorted({int(g) for gs in (goal_map or {}).values() for g in gs})
+    ctx.data["direct_goal_ids"] = direct_goals
+    ctx.data["analytics_goal_ids"] = [g for g in all_goals if g not in direct_goals]
+
+    goals_all = direct_goals or all_goals
+    if not direct_goals and all_goals:
+        ctx.note("Приоритетные цели кампаний не заданы — матрица целей построена "
+                 "по всем целям счётчика: это аналитический, а не закупочный срез")
     if not goals_all:
         ctx.data["goal_matrix"] = None
         ctx.note("Цели Метрики не получены — проверка неработающих целей пропущена")

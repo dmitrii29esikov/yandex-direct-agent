@@ -209,6 +209,22 @@ def render_economy(ctx) -> str:
                 f"{(conversions or 0):.0f} | {_fnum(price)} | {_fnum(target)} | "
                 f"{_verdict(price, target, conversions, cost)} |")
         lines.append("")
+        # Kakie tseli uchastvuyut v zakupke, a kakie — tol'ko analitika.
+        direct_ids = ctx.data.get("direct_goal_ids") or []
+        if not direct_ids:
+            resolved = ctx.data.get("priority_goals") or {}
+            direct_ids = sorted({int(g) for gs in (resolved.get("api") or {}).values()
+                                 for g in gs})
+        analytics_ids = ctx.data.get("analytics_goal_ids") or []
+        if direct_ids:
+            goal_names = ctx.data.get("goal_names") or {}
+            shown = ", ".join(goal_names.get(g) or str(g) for g in direct_ids[:8])
+            lines.append(f"**В Директе участвуют цели ({len(direct_ids)}):** {shown}.")
+            if analytics_ids:
+                lines.append(f"Остальные {len(analytics_ids)} целей счётчика — аналитика "
+                             f"Метрики: в закупке и обучении алгоритмов не участвуют, "
+                             f"поэтому в расчётах не используются.")
+            lines.append("")
         lines.append("Заявки считаются по **приоритетным целям** кампаний — то есть "
                      "по обращениям, а не по микродействиям счётчика.")
         lines.append("")
@@ -220,11 +236,18 @@ def render_economy(ctx) -> str:
         lines.append("")
         lines.append("| Кампания | Цель | Конверсий | Цена за цель |")
         lines.append("|---|---|---|---|")
+        # Tol'ko sobstvennye tseli kampanii: Direct umeet privodit
+        # konversii po tselyam chuzhih schetchikov (nablyudali na tseli 13).
+        own_goals = {}
+        for key, values in ((ctx.data.get("priority_goals") or {}).get("goals") or {}).items():
+            own_goals[str(key)] = {int(g) for g in values}
         rows = []
         for cid, bucket in matrix["by_campaign"].items():
             campaign = next((c for c in campaigns if str(c.get("Id")) == str(cid)), {})
             cost = (stats.get(str(cid)) or {}).get("cost") or 0
             for goal_id, count in bucket.items():
+                if own_goals.get(str(cid)) and int(goal_id) not in own_goals[str(cid)]:
+                    continue
                 if not count:
                     continue
                 rows.append((count, campaign.get("Name") or str(cid),
