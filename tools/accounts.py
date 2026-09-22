@@ -14,6 +14,7 @@ from mcp_instance import mcp
 
 import access
 import accounts_store as store
+import ytm_config
 
 log = logging.getLogger("tools.accounts")
 
@@ -345,4 +346,110 @@ def oauth_link() -> dict:
             f"Затем: add_account(account='<имя>', mode='token', direct_token=<токен>, ...)",
         ],
         "scope_note": "Один токен с этим набором скоупов подходит и для Директа, и для Метрики, и для YTM.",
+    }
+
+
+@mcp.tool()
+def discover_containers(account: str | None = None, save: bool = True) -> dict:
+    """
+    Находит контейнеры Яндекс Тег Менеджера для счётчиков аккаунта.
+
+    Почему это отдельный инструмент: у API Тег Менеджера НЕТ метода со списком
+    контейнеров (проверено — все варианты отдают 404), а в объекте счётчика
+    Метрики нет ссылки на контейнер. Единственный программный путь — публичный
+    endpoint ytm-config, который загружает тег счётчика на сайте.
+
+    Привязка идемпотентна: счётчик и контейнер принадлежат ровно одному
+    аккаунту, чужие привязки не перехватываются.
+
+    save=True — привязывает найденные доступные контейнеры к аккаунту.
+    """
+    try:
+        name, record = access.context(account)
+    except access.AccessError as e:
+        return {"error": str(e)}
+
+    # Привязки, уже занятые другими аккаунтами: не перехватываем их.
+    foreign_counters, foreign_containers = set(), set()
+    for other, rec in store.all_accounts().items():
+        if other == name:
+            continue
+        foreign_counters |= {int(c) for c in
+                             ((rec.get("metrica") or {}).get("counter_ids") or [])}
+        foreign_containers |= {int(c) for c in
+                               ((rec.get("ytm") or {}).get("container_ids") or [])}
+
+    counter_ids = list(access.metrica_counter_ids(name))
+    counters_meta = {}
+
+    data = access.metrica_get(name, "/management/v1/counters")
+    if isinstance(data, dict) and not data.get("error"):
+        for c in data.get("counters", []):
+            counters_meta[c.get("id")] = c
+        if not counter_ids:
+            counter_ids = [c.get("id") for c in data.get("counters", []) if c.get("id")]
+    elif not counter_ids:
+        return {"error": data.get("error") if isinstance(data, dict) else "нет данных"}
+
+    found, not_accessible, without_ytm, skipped = [], [], [], []
+
+    for counter_id in counter_ids:
+        meta = counters_meta.get(counter_id) or {}
+        base = {
+            "counter_id": counter_id,
+            "counter_name": meta.get("name"),
+            "owner_login": meta.get("owner_login"),
+            "site": meta.get("site"),
+        }
+
+        if counter_id in foreign_counters and not access.metrica_counter_ids(name):
+            skipped.append({**base, "reason": "привязан к другому аккаунту"})
+            continue
+
+        info = ytm_config.summary(counter_id)
+        if not info.get("ytm") or not info.get("container_id"):
+            without_ytm.append(base)
+            continue
+
+        container_id = int(info["container_id"])
+        probe = access.ytm_get(name, f"container/{container_id}")
+        accessible = not (isinstance(probe, dict) and probe.get("error"))
+
+        entry = {
+            **base,
+            "container_id": container_id,
+            "container_version": info.get("container_version"),
+            "tags_in_config": info.get("tags"),
+            "triggers_in_config": info.get("triggers"),
+            "api_accessible": accessible,
+        }
+
+        if not accessible:
+            entry["api_error"] = probe.get("error")
+            entry["hint"] = ("Контейнер есть, но не выдан нашему YTM-токену: "
+                             "теги через API не прочитать")
+            not_accessible.append(entry)
+            continue
+
+        if container_id in foreign_containers:
+            entry["hint"] = "Контейнер уже привязан к другому аккаунту"
+            skipped.append(entry)
+            continue
+
+        found.append(entry)
+
+    if save and found:
+        store.link_containers(name, [f["container_id"] for f in found])
+
+    return {
+        "account": name,
+        "counters_checked": len(counter_ids),
+        "containers_found": len(found),
+        "saved": bool(save and found),
+        "found": found,
+        "found_not_accessible": not_accessible,
+        "without_ytm": without_ytm,
+        "skipped_foreign": skipped,
+        "note": "Контейнер читается через API только если выдан нашему "
+                "YTM-токену. Привязка не перехватывает чужие счётчики.",
     }

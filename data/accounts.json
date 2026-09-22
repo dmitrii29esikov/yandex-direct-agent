@@ -7,12 +7,21 @@
       "client_login": null
     },
     "metrica": {
-      "counter_ids": [],
+      "counter_ids": [
+        105457694,
+        46756407,
+        108385562,
+        108385456
+      ],
       "ulogin": null,
       "token_ref": "default"
     },
     "ytm": {
-      "container_ids": [],
+      "container_ids": [
+        872525,
+        1334804,
+        1346322
+      ],
       "token_ref": "default"
     },
     "goals": {}
@@ -41,6 +50,7 @@
     },
     "ytm": {
       "container_ids": [
+        142940,
         1007795
       ],
       "token_ref": "default"

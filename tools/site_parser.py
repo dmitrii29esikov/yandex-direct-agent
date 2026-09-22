@@ -216,6 +216,7 @@ def _parse_counters_from_network(requests_log: list) -> dict:
     metrika_other = set()
     ga_ids = set()
     ytm_container_ids = set()
+    ytm_counters = set()
     third_party = set()
 
     THIRD_PARTY_DOMAINS = (
@@ -252,10 +253,16 @@ def _parse_counters_from_network(requests_log: list) -> dict:
         if m:
             ga_ids.add(m.group(1))
 
-        # 5. YTM kontejnery
+        # 5. YTM kontejnery: pryamoj containerId v zaprose
         m = re.search(r"(?:containerId|container_id)=(\d{4,12})", u, re.I)
         if m and "yandex" in u:
             ytm_container_ids.add(m.group(1))
+
+        # 5b. YTM, podklyuchennyj cherez schetchik: mc.yandex.ru/ytm-config/<counter>.
+        # Tak YTM rabotaet chasche vsego, i ran'she etot sluchaj ne lovilsya.
+        m = re.search(r"ytm-config/(\d{4,12})", u, re.I)
+        if m:
+            ytm_counters.add(m.group(1))
 
         # 6. Storonnij load
         if any(d in u for d in THIRD_PARTY_DOMAINS):
@@ -266,9 +273,35 @@ def _parse_counters_from_network(requests_log: list) -> dict:
         "metrika_watch_ids": sorted(metrika_watch),
         "ga_ids_from_network": sorted(ga_ids),
         "ytm_container_ids_from_network": sorted(ytm_container_ids),
+        "ytm_configured_counters": sorted(ytm_counters),
         "metrika_other_requests": sorted(metrika_other)[:15],
         "third_party_hits": sorted(third_party)[:30],
     }
+
+
+def _resolve_ytm_containers(counters_net: dict) -> list:
+    """
+    Nomera kontejnerov YTM dlya stranitsy.
+
+    Esli v zaprosah est' pryamoj containerId — berem ego. Inache YTM najden
+    cherez schetchik (mc.yandex.ru/ytm-config/<counter>), i nomer kontejnera
+    dostraivaem iz publichnogo konfiga.
+    """
+    direct = list(counters_net.get("ytm_container_ids_from_network") or [])
+    if direct:
+        return sorted(set(direct))
+
+    import ytm_config
+
+    resolved = set()
+    for counter in counters_net.get("ytm_configured_counters") or []:
+        try:
+            container = ytm_config.container_id(int(counter))
+        except (TypeError, ValueError):
+            container = None
+        if container:
+            resolved.add(str(container))
+    return sorted(resolved)
 
 
 def _parse_datalayer(html: str) -> list:
@@ -351,6 +384,7 @@ async def analyze_site(url: str, use_js: bool = True) -> dict:
         "metrika_watch_ids": [],
         "ga_ids_from_network": [],
         "ytm_container_ids_from_network": [],
+        "ytm_configured_counters": [],
         "metrika_other_requests": [],
         "third_party_hits": [],
     }
@@ -376,7 +410,8 @@ async def analyze_site(url: str, use_js: bool = True) -> dict:
             "metrika_ids": metrika_all,
             "metrika_watch_ids": counters_net["metrika_watch_ids"],
             "ga_ids": ga_all,
-            "ytm_container_ids": counters_net["ytm_container_ids_from_network"],
+            "ytm_container_ids": _resolve_ytm_containers(counters_net),
+            "ytm_configured_counters": counters_net.get("ytm_configured_counters", []),
             "metrika_scripts": counters_html["metrika_scripts"],
             "metrika_other_requests": counters_net["metrika_other_requests"],
             "third_party_hits": counters_net["third_party_hits"],
