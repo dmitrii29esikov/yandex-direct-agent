@@ -120,6 +120,11 @@ def get_campaign_stats(
         if cpa_goal_id not in effective_goals:
             effective_goals.append(cpa_goal_id)
 
+    # API prinimaet ne bolee 10 tselej v odnom zaprose (oshibka 7000).
+    if len(effective_goals) > 10:
+        return {"error": f"Goals может содержать не более 10 элементов, "
+                          f"передано {len(effective_goals)}. Разбейте на части."}
+
     # SelectionCriteria:
     # - Filter i Goals — vsegda mozhno.
     # - DateFrom/DateTo — TOLKO pri DateRangeType == "CUSTOM_DATE".
@@ -130,8 +135,6 @@ def get_campaign_stats(
             "Operator": "IN",
             "Values": [str(c) for c in campaign_ids],
         }]
-    if effective_goals:
-        selection["Goals"] = [str(g) for g in effective_goals]
     if date_range_type == "CUSTOM_DATE":
         selection["DateFrom"] = date_from_s
         selection["DateTo"] = date_to_s
@@ -139,6 +142,11 @@ def get_campaign_stats(
     params = {
         "SelectionCriteria": selection,
         "FieldNames": fields,
+        # Vazhno: Goals — tol'ko na verhnem urovne params. Vnutri SelectionCriteria
+        # API ego ne prinimaet (oshibka 8000 «неизвестное поле Goals»), a molcha
+        # podmenit' ne stanet: bez Goals konversii schitayutsya po vsem tselyam
+        # kampanii, i CPA poluchaetsya smeshnym (naprimer 2,32 rub. vmesto 15 rub.).
+        "Goals": [str(g) for g in effective_goals],
         "ReportName": f"report_{int(time.time())}",
         "ReportType": report_type,
         "DateRangeType": date_range_type,
@@ -146,6 +154,8 @@ def get_campaign_stats(
         "IncludeVAT": "YES",
         "IncludeDiscount": "NO",
     }
+    if not effective_goals:
+        params.pop("Goals")
     if attribution_model:
         params["AttributionModels"] = [attribution_model]
 
