@@ -494,8 +494,24 @@ def fetch_deep(ctx, period: str):
             if gid and int(gid) not in all_goals:
                 all_goals.append(int(gid))
 
-    direct_goals = sorted({int(g) for gs in (goal_map or {}).values() for g in gs})
+    # Архивные кампании денег не тратят: их цели в расчётах только мешают
+    # (десятки «мёртвых» целей, которых уже нет в работе). Берём цели живых
+    # кампаний, а архивные — только если живых нет вовсе.
+    strategies = ctx.data.get("strategies") or {}
+
+    def _archived(campaign_id):
+        info = strategies.get(int(campaign_id)) if str(campaign_id).isdigit() else None
+        return bool(info and info.get("state") == "ARCHIVED")
+
+    live_goals = sorted({int(g) for cid, gs in (goal_map or {}).items()
+                         for g in gs if not _archived(cid)})
+    all_direct_goals = sorted({int(g) for gs in (goal_map or {}).values() for g in gs})
+    direct_goals = live_goals or all_direct_goals
     ctx.data["direct_goal_ids"] = direct_goals
+    ctx.data["direct_goal_ids_all"] = all_direct_goals
+    if live_goals and len(live_goals) < len(all_direct_goals):
+        ctx.note(f"Цели архивных кампаний ({len(all_direct_goals) - len(live_goals)} шт.) "
+                 f"в расчёты не входят: архив денег не тратит")
     ctx.data["analytics_goal_ids"] = [g for g in all_goals if g not in direct_goals]
 
     goals_all = direct_goals or all_goals

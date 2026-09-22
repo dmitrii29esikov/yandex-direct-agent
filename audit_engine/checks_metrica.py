@@ -159,12 +159,15 @@ def check_goals_scope(ctx):
     if not counters_goals:
         return []
 
-    resolved = ctx.data.get("priority_goals") or {}
-    direct_ids = sorted({int(g) for gs in (resolved.get("api") or {}).values()
-                         for g in gs})
+    # В глубоком режиме движок уже посчитал цели живых кампаний — берём их.
+    direct_ids = sorted(int(g) for g in (ctx.data.get("direct_goal_ids") or []))
     if not direct_ids:
-        direct_ids = sorted({int(g) for gs in (resolved.get("goals") or {}).values()
+        resolved = ctx.data.get("priority_goals") or {}
+        direct_ids = sorted({int(g) for gs in (resolved.get("api") or {}).values()
                              for g in gs})
+        if not direct_ids:
+            direct_ids = sorted({int(g) for gs in (resolved.get("goals") or {}).values()
+                                 for g in gs})
 
     all_ids = []
     for goals in counters_goals.values():

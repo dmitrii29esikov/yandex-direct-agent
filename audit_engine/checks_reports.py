@@ -50,6 +50,11 @@ def check_dead_goals(ctx):
 
     matrix = ctx.data.get("goal_matrix") or {}
     dead = matrix.get("dead_goals") or []
+    # Матрица может строиться по всем целям кампаний; если глубокий режим
+    # отметил цели живых кампаний — считаем «мёртвыми» только их.
+    live_goals = set(ctx.data.get("direct_goal_ids") or [])
+    if live_goals:
+        dead = [g for g in dead if g in live_goals]
     if not dead:
         return []
 
