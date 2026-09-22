@@ -36,6 +36,16 @@ class Ctx:
     def note(self, text: str):
         self.notes.append(text)
 
+    def loaded(self, *keys) -> bool:
+        """
+        Dannye real'no zagruzheny?
+
+        None v data oznachaet, chto zapros upal. Eto principial'no: inache
+        proverki prinyali by otsutstvie dannyh za "pustoj akkaunt" i vyдали by
+        lozhnye nahodki vrode "kampaniya ne napolnena" dlya vseh srazu.
+        """
+        return all(self.data.get(key) is not None for key in keys)
+
 
 def _safe(ctx, label, fn, *args, **kwargs):
     """Lyubaya oshibka sbora dannyh popadaet v 'Ne provereno', a audit idet dal'she."""

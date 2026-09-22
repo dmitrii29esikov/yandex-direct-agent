@@ -39,6 +39,8 @@ def _campaign_meta(campaign):
 @register("DIRECT.NO_ACTIVE_CAMPAIGNS", "direct", "error",
           description="Ни одна кампания не показывается")
 def check_no_active(ctx):
+    if not ctx.loaded('campaigns'):
+        return []
     campaigns = ctx.data.get("campaigns") or []
     if not campaigns or any(c.get("State") == "ON" for c in campaigns):
         return []
@@ -58,6 +60,8 @@ def check_no_active(ctx):
 @register("DIRECT.EMPTY_CAMPAIGN", "direct", "error",
           description="Кампания без групп или без объявлений")
 def check_empty_campaign(ctx):
+    if not ctx.loaded('adgroups', 'ads'):
+        return []
     groups = _group_by(ctx.data.get("adgroups"), "CampaignId")
     ads = _group_by(ctx.data.get("ads"), "CampaignId")
     out = []
@@ -79,6 +83,8 @@ def check_empty_campaign(ctx):
 @register("DIRECT.ADGROUP_NO_ADS", "direct", "warning",
           description="Группа без объявлений")
 def check_adgroup_without_ads(ctx):
+    if not ctx.loaded('ads'):
+        return []
     ads = _group_by(ctx.data.get("ads"), "AdGroupId")
     out = []
     for g in ctx.data.get("adgroups") or []:
@@ -97,6 +103,8 @@ def check_adgroup_without_ads(ctx):
 @register("DIRECT.ADGROUP_NO_KEYWORDS", "direct", "warning",
           description="Группа без ключевых фраз")
 def check_adgroup_without_keywords(ctx):
+    if not ctx.loaded('keywords'):
+        return []
     kws = _group_by(ctx.data.get("keywords"), "AdGroupId")
     out = []
     for g in ctx.data.get("adgroups") or []:
@@ -115,6 +123,8 @@ def check_adgroup_without_keywords(ctx):
 @register("DIRECT.DUPLICATE_KEYWORDS", "direct", "warning",
           description="Одна фраза в нескольких группах кампании")
 def check_duplicate_keywords(ctx):
+    if not ctx.loaded('keywords'):
+        return []
     kws = _group_by(ctx.data.get("keywords"), "CampaignId")
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     out = []
@@ -142,6 +152,8 @@ def check_duplicate_keywords(ctx):
 @register("DIRECT.GROUP_NO_NEGATIVES", "direct", "info",
           description="Группа без минус-фраз")
 def check_group_without_negatives(ctx):
+    if not ctx.loaded('adgroups'):
+        return []
     out = []
     for g in ctx.data.get("adgroups") or []:
         if not (g.get("NegativeKeywords") or {}).get("Items"):
@@ -163,6 +175,8 @@ def check_group_without_negatives(ctx):
 @register("DIRECT.TEXT_LENGTH", "direct", "error", fixable="auto",
           description="Превышена длина заголовка или текста объявления")
 def check_text_length(ctx):
+    if not ctx.loaded('ads'):
+        return []
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     problems = {}
     for ad in ctx.data.get("ads") or []:
@@ -199,6 +213,8 @@ def check_text_length(ctx):
 @register("DIRECT.NO_SITELINKS", "direct", "warning",
           description="У объявлений нет быстрых ссылок")
 def check_no_sitelinks(ctx):
+    if not ctx.loaded('ads'):
+        return []
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     without = {}
     total = {}
@@ -246,6 +262,8 @@ def _has_callouts(ext) -> bool:
 
 
 def check_no_callouts(ctx):
+    if not ctx.loaded('ads'):
+        return []
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     without = {}
     total = {}
@@ -281,6 +299,8 @@ def check_no_callouts(ctx):
 @register("DIRECT.NO_DAILY_BUDGET", "direct", "warning",
           description="Нет дневного бюджета при ручном управлении")
 def check_no_daily_budget(ctx):
+    if not ctx.loaded('campaigns'):
+        return []
     out = []
     for c in ctx.data.get("campaigns") or []:
         if c.get("State") == "ARCHIVED":
@@ -300,6 +320,8 @@ def check_no_daily_budget(ctx):
 @register("DIRECT.SPEND_NO_CONVERSION", "direct", "error",
           description="Есть расход, но нет конверсий")
 def check_spend_without_conversion(ctx):
+    if not ctx.loaded('campaigns', 'stats'):
+        return []
     out = []
     for c in ctx.data.get("campaigns") or []:
         stats = _stats_for(ctx, c.get("Id"))
@@ -324,7 +346,9 @@ def check_spend_without_conversion(ctx):
 @register("DIRECT.CPA_ABOVE_TARGET", "direct", "warning",
           description="Фактическая цена конверсии выше целевой")
 def check_cpa_above_target(ctx):
-    target = ctx.data.get("target_cpa")
+    if not ctx.loaded('campaigns', 'stats'):
+        return []
+    target = ctx.target_cpa
     if not target:
         return []
     out = []
@@ -349,6 +373,8 @@ def check_cpa_above_target(ctx):
 @register("DIRECT.REJECTED_ADS", "direct", "error",
           description="Объявления, отклонённые модерацией")
 def check_rejected_ads(ctx):
+    if not ctx.loaded('ads'):
+        return []
     campaigns = {str(c.get("Id")): c for c in (ctx.data.get("campaigns") or [])}
     rejected = {}
     for ad in ctx.data.get("ads") or []:
@@ -377,6 +403,8 @@ def check_rejected_ads(ctx):
 @register("DIRECT.STATUS_PAYMENT", "direct", "error",
           description="Проблемы с оплатой аккаунта")
 def check_status_payment(ctx):
+    if not ctx.loaded('campaigns'):
+        return []
     bad = [c for c in (ctx.data.get("campaigns") or [])
            if c.get("StatusPayment") not in (None, "ALLOWED")]
     if not bad:

@@ -17,6 +17,8 @@ def _campaign_meta(campaign):
 @register("CROSS.UNLINKED_COUNTERS", "cross", "info",
           description="В Метрике видны счётчики, не привязанные в реестре")
 def check_unlinked_counters(ctx):
+    if not ctx.loaded('all_counters'):
+        return []
     linked = set(str(c) for c in (ctx.data.get("linked_counter_ids") or []))
     counters = ctx.data.get("counters") or []
     if not counters:
@@ -43,6 +45,8 @@ def check_unlinked_counters(ctx):
 @register("CROSS.GOALS_MISSING_IN_DIRECT", "cross", "warning",
           description="Цель Метрики не передана в кампанию Директа")
 def check_goals_missing_in_direct(ctx):
+    if not ctx.loaded('campaigns', 'counters'):
+        return []
     counters = [c for c in (ctx.data.get("counters") or []) if c.get("id")]
     if not counters:
         return []
@@ -87,6 +91,8 @@ def check_goals_missing_in_direct(ctx):
 @register("CROSS.DIRECT_CLIENTS_AVAILABLE", "cross", "info",
           description="Владелец счётчика даёт доступ к клиентам Директа")
 def check_direct_clients(ctx):
+    if not ctx.loaded('direct_clients'):
+        return []
     clients = ctx.data.get("direct_clients") or []
     if not clients:
         return []
@@ -103,6 +109,8 @@ def check_direct_clients(ctx):
 @register("CROSS.CONTAINER_COUNTER_MISMATCH", "cross", "warning",
           description="Контейнер Tag Manager привязан к чужому счётчику")
 def check_container_counter(ctx):
+    if not ctx.loaded('counters', 'ytm'):
+        return []
     counter_ids = {str(c.get("id")) for c in (ctx.data.get("counters") or [])}
     out = []
     for cid, buckets in (ctx.data.get("ytm") or {}).items():

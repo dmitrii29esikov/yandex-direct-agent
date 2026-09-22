@@ -22,6 +22,8 @@ def _counter_meta(counter):
 @register("METRICA.NO_COUNTER", "metrica", "error",
           description="К аккаунту не привязан ни один счётчик Метрики")
 def check_no_counter(ctx):
+    if not ctx.loaded('counters'):
+        return []
     counters = ctx.data.get("counters") or []
     if counters:
         return []
@@ -39,6 +41,8 @@ def check_no_counter(ctx):
 @register("METRICA.NO_GOALS", "metrica", "error",
           description="На счётчике нет ни одной цели")
 def check_no_goals(ctx):
+    if not ctx.loaded('counters', 'goals'):
+        return []
     out = []
     for counter in ctx.data.get("counters") or []:
         cid = counter.get("id")
@@ -61,6 +65,8 @@ def check_no_goals(ctx):
 @register("METRICA.NO_FAVORITE_GOALS", "metrica", "info",
           description="Ни одна цель не отмечена как ключевая")
 def check_no_favorite_goals(ctx):
+    if not ctx.loaded('counters'):
+        return []
     out = []
     for counter in ctx.data.get("counters") or []:
         cid = counter.get("id")
@@ -80,6 +86,8 @@ def check_no_favorite_goals(ctx):
 @register("METRICA.NO_DATA", "metrica", "error",
           description="Счётчик не собирает данные")
 def check_counter_no_data(ctx):
+    if not ctx.loaded('counters'):
+        return []
     out = []
     for counter in ctx.data.get("counters") or []:
         if str(counter.get("activity_status") or "").lower() == NO_DATA:
@@ -99,6 +107,8 @@ def check_counter_no_data(ctx):
 @register("METRICA.LOW_ACTIVITY", "metrica", "warning",
           description="Мало данных для решений")
 def check_counter_low_activity(ctx):
+    if not ctx.loaded('counters'):
+        return []
     out = []
     for counter in ctx.data.get("counters") or []:
         status = str(counter.get("activity_status") or "").lower()
@@ -117,6 +127,8 @@ def check_counter_low_activity(ctx):
 @register("METRICA.CODE_STATUS", "metrica", "info",
           description="Состояние кода счётчика неизвестно")
 def check_counter_code_status(ctx):
+    if not ctx.loaded('counters'):
+        return []
     out = []
     for counter in ctx.data.get("counters") or []:
         code_status = str(counter.get("code_status") or "")

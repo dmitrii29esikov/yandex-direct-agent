@@ -12,20 +12,25 @@
       "token_ref": "default"
     },
     "ytm": {
-      "container_ids": [
-        1007795
-      ],
+      "container_ids": [],
       "token_ref": "default"
     },
     "goals": {}
   },
   "printyard": {
-    "title": "printyard",
+    "title": "Аккаунт Антона (Print Yard, Кладовкер, Outletika, LoveScore)",
     "direct": {
       "mode": "token",
       "client_login": null,
       "client_id": null,
-      "token_ref": "printyard"
+      "token_ref": "printyard",
+      "campaign_ids": [
+        114807904,
+        117845305,
+        710718813,
+        710909401,
+        706473673
+      ]
     },
     "metrica": {
       "counter_ids": [
@@ -40,6 +45,8 @@
       ],
       "token_ref": "default"
     },
-    "goals": {}
+    "goals": {
+      "target_cpa": 550
+    }
   }
 }

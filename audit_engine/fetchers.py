@@ -30,7 +30,10 @@ TEXT_AD_FIELDS = ["Title", "Title2", "Text", "Href", "DisplayUrlPath",
 KEYWORD_FIELDS = ["Id", "AdGroupId", "CampaignId", "Keyword", "State", "Status"]
 
 PAGE_SIZE = 10000
-ID_CHUNK = 500
+# Direct API prinimaet ne bolee 10 identifikatorov v SelectionCriteria
+# (Ids / CampaignIds / AdGroupIds) za odin zapros. 27 kampanij v odnom zaprose
+# dayut oshibku 4001 "Prevysheno dopustimoe kolichestvo identifikatorov".
+ID_CHUNK = 10
 MAX_HEAL_ROUNDS = 4
 
 
@@ -101,7 +104,7 @@ def _paged(client, service, fields, ctx, label, key, criteria=None, extra=None,
 
             result = _post(client, service, params, ctx, label)
             if not result:
-                return items
+                return None
 
             chunk = ((result.get("result") or {}).get(key)) or []
             items.extend(chunk)
@@ -137,14 +140,15 @@ def fetch_direct(ctx):
                        "campaigns.get", "Campaigns")
     ctx.data["campaigns"] = campaigns
 
-    ids = [c["Id"] for c in campaigns if c.get("Id")]
+    ids = [c["Id"] for c in (campaigns or []) if c.get("Id")]
     if not ids:
         # Bez kampanij zaprashivat' gruppy/obyavleniya/frazy nel'zya:
         # API trebuet SelectionCriteria s CampaignIds.
-        ctx.data.setdefault("adgroups", [])
-        ctx.data.setdefault("ads", [])
-        ctx.data.setdefault("keywords", [])
-        ctx.note("Кампании не получены — группы, объявления и фразы не проверялись")
+        ctx.data.setdefault("adgroups", None)
+        ctx.data.setdefault("ads", None)
+        ctx.data.setdefault("keywords", None)
+        ctx.note("Кампании не получены или отсутствуют — группы, объявления и фразы"
+                 " не проверялись")
     else:
         criteria = _chunks(ids)
         ctx.data["adgroups"] = _paged(client, "adgroups", ADGROUP_FIELDS, ctx,
@@ -171,7 +175,7 @@ def fetch_stats(ctx, date_range: str):
     )
     if isinstance(data, dict) and data.get("error"):
         ctx.add_error("reports/campaigns", str(data["error"]))
-        ctx.data["stats"] = {}
+        ctx.data["stats"] = None
         return
 
     stats = {}
@@ -194,8 +198,8 @@ def fetch_metrica(ctx):
     counters_data = access.metrica_get(ctx.account, "/management/v1/counters")
     if isinstance(counters_data, dict) and counters_data.get("error"):
         ctx.add_error("metrica/counters", counters_data["error"])
-        ctx.data["counters"] = []
-        ctx.data["goals"] = {}
+        ctx.data["counters"] = None
+        ctx.data["goals"] = None
         return
 
     linked = access.metrica_counter_ids(ctx.account)
@@ -250,13 +254,13 @@ def fetch_campaign_clients(ctx):
         c.get("id") for c in (ctx.data.get("counters") or []) if c.get("id")]
     if not counter_ids:
         ctx.note("metrica/clients: нет счётчиков для запроса — список клиентов Директа не получен")
-        ctx.data["direct_clients"] = []
+        ctx.data["direct_clients"] = None
         return
 
     data = access.metrica_get(ctx.account, "/management/v1/clients",
                               {"counters": ",".join(str(c) for c in counter_ids)})
     if isinstance(data, dict) and data.get("error"):
         ctx.add_error("metrica/clients", data["error"])
-        ctx.data["direct_clients"] = []
+        ctx.data["direct_clients"] = None
         return
     ctx.data["direct_clients"] = (data or {}).get("clients", [])
