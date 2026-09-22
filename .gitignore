@@ -12,6 +12,6 @@ data/audits/
 # rezevnye kopii reestra pri migratsiyah
 *.bak
 
-# lokal'nye sluzhebnye skripty razbora — ne v git
+# lokalnye sluzhebnye skripty razbora - ne v git
 probe_*.ps1
 probe_*.py
