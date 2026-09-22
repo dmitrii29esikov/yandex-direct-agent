@@ -34,6 +34,27 @@ Claude Desktop) или командную строку.
 рекламы. Справка о разделении целей есть в проверке `METRICA.GOALS_SCOPE`
 и в разделе «Экономика заявок».
 
+## Если правки кода не подхватились
+
+Кнопка **«Сохранить»** в карточке MCP-сервера НЕ пересоздаёт процесс: сервер
+продолжает работать со старым кодом. Пересоздаёт только **«Подключить»**
+(или полный перезапуск Chatbox). Симптом: агент отдаёт старые описания и
+старое число проверок.
+
+Самопроверка — сравнить время старта процесса и свежесть кода:
+
+```powershell
+Get-CimInstance Win32_Process -Filter "Name like '%python%'" |
+  Where-Object { $_.CommandLine -like '*yandex_direct_agent*' } |
+  Select-Object ProcessId, CreationDate
+Get-ChildItem C:\yandex_direct_agent\audit_engine\*.py, C:\yandex_direct_agent\*.py |
+  Sort-Object LastWriteTime -Descending | Select-Object -First 1 Name, LastWriteTime
+```
+
+Если файл новее процесса — сервер работает на старом коде.
+Дополнительно: `list_audit_checks` в чате покажет актуальное число проверок
+(в коде сейчас 49).
+
 ## Что аудит берёт в работу
 
 **Архив не аудируется по умолчанию.** Архивные кампании не расходуют бюджет,
