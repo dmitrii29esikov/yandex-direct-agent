@@ -412,6 +412,8 @@ def discover_containers(account: str | None = None, save: bool = True) -> dict:
             continue
 
         container_id = int(info["container_id"])
+        in_use = bool(info.get("in_use"))
+
         probe = access.ytm_get(name, f"container/{container_id}")
         accessible = not (isinstance(probe, dict) and probe.get("error"))
 
@@ -421,13 +423,21 @@ def discover_containers(account: str | None = None, save: bool = True) -> dict:
             "container_version": info.get("container_version"),
             "tags_in_config": info.get("tags"),
             "triggers_in_config": info.get("triggers"),
+            "in_use": in_use,
             "api_accessible": accessible,
         }
 
         if not accessible:
-            entry["api_error"] = probe.get("error")
-            entry["hint"] = ("Контейнер есть, но не выдан нашему YTM-токену: "
-                             "теги через API не прочитать")
+            # Разделяем два разных случая: контейнера ещё нет (заглушка, тегов
+            # нет) и контейнер есть, но не выдан нашему токену.
+            if info.get("placeholder_id") or not in_use:
+                entry["status"] = "не создан или не используется"
+                entry["hint"] = ("Контейнер ещё не создан: теги и триггеры не добавлены, "
+                                 "разметка ничего не собирает. Это не ошибка — просто не настроено.")
+            else:
+                entry["status"] = "нет доступа у токена"
+                entry["api_error"] = probe.get("error")
+                entry["hint"] = "Контейнер есть, но не выдан нашему YTM-токену"
             not_accessible.append(entry)
             continue
 
@@ -435,6 +445,12 @@ def discover_containers(account: str | None = None, save: bool = True) -> dict:
             entry["hint"] = "Контейнер уже привязан к другому аккаунту"
             skipped.append(entry)
             continue
+
+        if not in_use:
+            entry["status"] = "создан, но пустой"
+            entry["hint"] = "Контейнер есть, но теги не добавлены — данные не собираются"
+        else:
+            entry["status"] = "работает"
 
         found.append(entry)
 

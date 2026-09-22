@@ -118,3 +118,46 @@ def check_duplicates(ctx):
                     **_container_meta(cid),
                 ))
     return out
+
+
+@register("YTM.NOT_IN_USE", "ytm", "info", fixable="ytm_ui",
+          description="Тег Менеджер включён на счётчике, но теги не добавлены")
+def check_ytm_not_in_use(ctx):
+    """
+    Разделяем два разных случая, которые легко спутать:
+
+    - контейнера ещё нет (в конфиге заглушка) — настройка просто не начата;
+    - контейнер есть, но теги не добавлены — настройка начата и брошена.
+
+    Это НЕ ошибка разметки: Яндекс Метрика сама по себе работает и без
+    Тег Менеджера. Поэтому уровень info, а не warning.
+    """
+    if not ctx.loaded("ytm_config"):
+        return []
+
+    names = {c.get("id"): c.get("name") for c in (ctx.data.get("counters") or [])}
+    out = []
+    for counter_id, info in (ctx.data.get("ytm_config") or {}).items():
+        if not info.get("ytm") or info.get("in_use"):
+            continue
+
+        if info.get("placeholder_id"):
+            detail = ("Тег Менеджер включён на счётчике, но контейнер ещё не создан — "
+                      "в конфигурации заглушка. Разметка ничего не собирает.")
+        else:
+            detail = ("Контейнер создан, но теги и триггеры в него не добавлены — "
+                      "разметка ничего не собирает.")
+
+        out.append(dict(
+            title="Тег Менеджер не используется",
+            detail=detail,
+            object_type="counter",
+            object_id=str(counter_id),
+            object_name=names.get(counter_id),
+            evidence={"container_id": info.get("container_id"),
+                      "тегов": info.get("tags"),
+                      "триггеров": info.get("triggers")},
+            fix="Добавить теги и триггеры в интерфейсе Яндекс Тег Менеджера "
+                "либо отключить контейнер, если он не нужен",
+        ))
+    return out

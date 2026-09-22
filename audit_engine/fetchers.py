@@ -12,6 +12,7 @@ protiv izmenenij v API.
 import logging
 
 import access
+import ytm_config
 
 log = logging.getLogger("audit.fetch")
 
@@ -226,6 +227,7 @@ def fetch_metrica(ctx):
 def fetch_ytm(ctx):
     """Tegi, triggery, peremennye i metadannye kontеjnerov."""
     ctx.data["ytm"] = {}
+    _fetch_ytm_config(ctx)
     for cid in access.ytm_container_ids(ctx.account):
         buckets = {}
 
@@ -246,6 +248,33 @@ def fetch_ytm(ctx):
                 buckets[name] = (data or {}).get(key, [])
 
         ctx.data["ytm"][cid] = buckets
+
+
+def _fetch_ytm_config(ctx):
+    """
+    Publichnyj ytm-config po kazhdomu schetchiku: token ne nuzhen.
+
+    Daet otvet na vopros, kotoryj API YTM ne umеет: kakie kontejnery voobsche
+    est' u schetchikov i napolneny li oni. Kontejner mozhet byt' vklyuchen i
+    pustym — togda razmetka nichego ne sobiraet, no eto ne polomka, a
+    nazavershennaya nastrojka.
+    """
+    counters = ctx.data.get("counters")
+    if counters is None:
+        ctx.data["ytm_config"] = None
+        return
+
+    result = {}
+    for counter in counters:
+        counter_id = counter.get("id")
+        if not counter_id:
+            continue
+        try:
+            result[counter_id] = ytm_config.summary(counter_id)
+        except Exception as e:
+            ctx.add_error(f"ytm-config/{counter_id}", f"{type(e).__name__}: {e}")
+
+    ctx.data["ytm_config"] = result
 
 
 def fetch_campaign_clients(ctx):

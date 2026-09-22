@@ -69,18 +69,42 @@ def container_id(counter_id: int) -> int | None:
 
 
 def summary(counter_id: int) -> dict:
-    """Короткая сводка по контейнеру счётчика — для отчётов и инструментов."""
+    """
+    Короткая сводка по контейнеру счётчика — для отчётов и инструментов.
+
+    Два поля требуют пояснения:
+
+    `in_use` — добавлены ли в контейнер теги или триггеры. Контейнер может быть
+    включён на счётчике, но оставаться пустым: тогда он ничего не собирает,
+    и это не ошибка разметки, а просто незаконченная настройка.
+
+    `placeholder_id` — номер контейнера подозрительно мал. Реальные номера
+    четырёх-семизначные (1007795, 142940, 872525). Если пришло что-то вроде 1,
+    значит контейнер ещё не создан, а в конфиг подставлена заглушка.
+    """
     config = fetch_config(counter_id)
     if not config:
-        return {"counter_id": counter_id, "ytm": False}
+        return {"counter_id": counter_id, "ytm": False, "in_use": False}
+
+    tags = config.get("tags") or []
+    triggers = config.get("triggers") or []
+    variables = config.get("variables") or []
+
+    raw_container = config.get("containerId")
+    try:
+        container = int(raw_container) if raw_container is not None else None
+    except (TypeError, ValueError):
+        container = None
 
     return {
         "counter_id": counter_id,
         "ytm": True,
-        "container_id": config.get("containerId"),
+        "container_id": container,
         "container_version": config.get("containerVersion"),
         "compiler_version": config.get("compilerVersion"),
-        "tags": len(config.get("tags") or []),
-        "triggers": len(config.get("triggers") or []),
-        "variables": len(config.get("variables") or []),
+        "tags": len(tags),
+        "triggers": len(triggers),
+        "variables": len(variables),
+        "in_use": bool(tags or triggers),
+        "placeholder_id": bool(container is not None and container < 1000),
     }

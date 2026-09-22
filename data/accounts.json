@@ -8,26 +8,21 @@
     },
     "metrica": {
       "counter_ids": [
-        105457694,
-        46756407,
-        108385562,
-        108385456
+        105457694
       ],
       "ulogin": null,
       "token_ref": "default"
     },
     "ytm": {
       "container_ids": [
-        872525,
-        1334804,
-        1346322
+        872525
       ],
       "token_ref": "default"
     },
     "goals": {}
   },
   "printyard": {
-    "title": "Аккаунт Антона (Print Yard, Кладовкер, Outletika, LoveScore)",
+    "title": "Аккаунт Антона: Print Yard, Кладовкер, Outletika, LoveScore, Анима Спейс",
     "direct": {
       "mode": "token",
       "client_login": null,
@@ -43,15 +38,20 @@
     },
     "metrica": {
       "counter_ids": [
+        46756407,
         73028443,
-        106104483
+        106104483,
+        108385456,
+        108385562
       ],
       "ulogin": "anton.anima"
     },
     "ytm": {
       "container_ids": [
         142940,
-        1007795
+        1007795,
+        1334804,
+        1346322
       ],
       "token_ref": "default"
     },
