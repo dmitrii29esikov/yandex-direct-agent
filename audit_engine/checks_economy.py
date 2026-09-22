@@ -23,11 +23,29 @@ def _meta(campaign):
             "object_name": campaign.get("Name")}
 
 
-def _market_cpa(ctx):
-    """Рыночная цена заявки из реестра: direct.market_cpa или goals.market_cpa."""
+def _market_cpa(ctx, campaign=None):
+    """
+    Рыночная цена заявки из реестра: direct.market_cpa или goals.market_cpa.
+
+    Значение может быть числом (одно на аккаунт) либо словарём по кампаниям:
+    в одном аккаунте живут разные проекты, и у каждого своя рыночная цена.
+        "direct": {"market_cpa": {"710718813": 3500, "710694370": 1500}}
+    """
     record = ctx.record or {}
-    return ((record.get("direct") or {}).get("market_cpa")
-            or (record.get("goals") or {}).get("market_cpa"))
+    market = ((record.get("direct") or {}).get("market_cpa")
+              or (record.get("goals") or {}).get("market_cpa"))
+    if isinstance(market, dict):
+        if not campaign:
+            return None
+        cid = str(campaign.get("Id"))
+        value = market.get(cid)
+        if value is None:
+            value = market.get(int(cid)) if cid.isdigit() else None
+        try:
+            return float(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
+    return market
 
 
 @register("DIRECT.LEAD_COST_BENCHMARK", "direct", "info",
@@ -54,10 +72,9 @@ def check_lead_cost_benchmark(ctx):
 
     best_campaign, best = min(rows, key=lambda item: item[1]["цена"])
     best_price = best["цена"]
-    market = _market_cpa(ctx)
-
     out = []
     for c, eco in rows:
+        market = _market_cpa(ctx, c)
         price = eco["цена"]
         if price <= best_price * 1.5:
             continue                      # в пределах полутора раз — не шумим

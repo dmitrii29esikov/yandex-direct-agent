@@ -172,7 +172,9 @@ def render_economy(ctx) -> str:
     aims = []
     if target:
         aims.append(f"план — **{target:.0f} ₽** за заявку")
-    if market:
+    if isinstance(market, dict):
+        aims.append("рыночная цена задана по кампаниям — колонка «Рынок ₽»")
+    elif market:
         aims.append(f"рыночная цена — **{market:.0f} ₽**")
     else:
         aims.append("рыночная цена не задана (добавьте `direct.market_cpa` "
@@ -185,8 +187,21 @@ def render_economy(ctx) -> str:
     campaigns = ctx.data.get("campaigns") or []
     if strategies:
         lines.append("| Кампания | Стратегия: поиск / сети | Лимит ₽/нед | День ₽ | "
-                     "Расход | Заявки | Цена заявки | План | Вердикт |")
-        lines.append("|---|---|---|---|---|---|---|---|---|")
+                     "Расход | Заявки | Цена заявки | План ₽ | Рынок ₽ | Вердикт |")
+        lines.append("|---|---|---|---|---|---|---|---|---|---|")
+        def camp_market(campaign):
+            """Рыночная цена заявки: число на аккаунт либо словарь по кампаниям."""
+            if not isinstance(market, dict):
+                return market
+            cid = str(campaign.get("Id"))
+            value = market.get(cid)
+            if value is None and cid.isdigit():
+                value = market.get(int(cid))
+            try:
+                return float(value) if value is not None else None
+            except (TypeError, ValueError):
+                return None
+
         for c in campaigns:
             cid = str(c.get("Id"))
             info = strategies.get(int(cid)) if str(cid).isdigit() else None
@@ -203,11 +218,14 @@ def render_economy(ctx) -> str:
                 limits = [x for x in limits if x]
                 limit = max(limits) if limits else None
                 daily = info.get("daily_budget")
+            camp_market_value = camp_market(c)
+            reference = camp_market_value or target
             lines.append(
                 f"| {(c.get('Name') or '')[:38]} | {_scope_label(info)} | "
                 f"{_fnum(limit)} | {_fnum(daily)} | {_fnum(cost)} | "
                 f"{(conversions or 0):.0f} | {_fnum(price)} | {_fnum(target)} | "
-                f"{_verdict(price, target, conversions, cost)} |")
+                f"{_fnum(camp_market_value)} | "
+                f"{_verdict(price, reference, conversions, cost)} |")
         lines.append("")
         # Kakie tseli uchastvuyut v zakupke, a kakie — tol'ko analitika.
         direct_ids = ctx.data.get("direct_goal_ids") or []
