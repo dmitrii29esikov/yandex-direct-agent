@@ -36,6 +36,15 @@ import access
 REPORTS_URL = "https://api.direct.yandex.com/json/v5/reports"
 
 
+def _decode(response) -> str:
+    """
+    Yandex otdaet JSON i TSV v UTF-8, no ne vsegda ukazyvaet charset v zagolovke.
+    requests v takom sluchae ugadyvaet kodirovku, i v tekstah oshibok i v
+    nazvaniyah kampanij poluchaetsya krakozyabra. Poetomu dekodiruem yavno.
+    """
+    return response.content.decode("utf-8", errors="replace")
+
+
 def _parse_tsv(text: str) -> dict:
     """Razbor TSV-otcheta v dict so spiskom strok."""
     lines = [l for l in text.splitlines() if l.strip()]
@@ -163,13 +172,13 @@ def get_campaign_stats(
             return {"error": str(e)}
 
         if resp.status_code == 200:
-            return _parse_tsv(resp.text)
+            return _parse_tsv(_decode(resp))
 
         if resp.status_code in (201, 202):
             retry_in = int(resp.headers.get("retryIn", "5"))
             time.sleep(retry_in)
             continue
 
-        return {"error": f"Reports API {resp.status_code}: {resp.text[:500]}"}
+        return {"error": f"Reports API {resp.status_code}: {_decode(resp)[:500]}"}
 
     return {"error": "Timeout: otchet ne uspel podgotovit'sya"}

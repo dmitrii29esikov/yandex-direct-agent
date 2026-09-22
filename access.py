@@ -106,7 +106,8 @@ def metrica_ulogin(account: str | None = None) -> str | None:
 
 
 def metrica_get(account: str | None, path: str, params: dict | None = None,
-                add_ulogin: bool = True) -> dict:
+                add_ulogin: bool = True, timeout: int = 30,
+                retries: int = 1) -> dict:
     """
     GET k Metrika Management API s predstavitelskim dostupom.
 
@@ -124,10 +125,16 @@ def metrica_get(account: str | None, path: str, params: dict | None = None,
         params.setdefault("ulogin", ulogin)
 
     url = f"{METRICA_BASE}{path}"
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=30)
-    except requests.exceptions.RequestException as e:
-        return {"error": f"Сеть недоступна: {e}"}
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, params=params,
+                                timeout=timeout * (attempt + 1))
+            break
+        except requests.exceptions.RequestException as e:
+            last_error = e
+    else:
+        return {"error": f"Сеть недоступна после {retries + 1} попыток: {last_error}"}
 
     if resp.status_code == 401:
         return {"error": "401: токен Метрики отозван или неверен — переподключите аккаунт"}
@@ -165,18 +172,29 @@ def ytm_headers(account: str | None = None) -> dict:
     }
 
 
-def ytm_get(account: str | None, path: str) -> dict:
-    """GET k YTM API. API YTM tol'ko dlya chteniya — zapisi ne byvayut."""
+def ytm_get(account: str | None, path: str, timeout: int = 30, retries: int = 1) -> dict:
+    """
+    GET k YTM API. API YTM tol'ko dlya chteniya — zapisi ne byvayut.
+
+    U YTM byvayut medlennye otvety (osobenno /variables), poetomu pri tajmaute
+    delaem odnu povtornuyu popytku s uvelichennym tajmautom vmesto togo,
+    chtoby srazu pisat' ""ne provereno"".
+    """
     try:
         headers = ytm_headers(account)
     except AccessError as e:
         return {"error": str(e)}
 
     url = f"{YTM_BASE}/{path}"
-    try:
-        resp = requests.get(url, headers=headers, timeout=30)
-    except requests.exceptions.RequestException as e:
-        return {"error": f"Сеть недоступна: {e}"}
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout * (attempt + 1))
+            break
+        except requests.exceptions.RequestException as e:
+            last_error = e
+    else:
+        return {"error": f"Сеть недоступна после {retries + 1} попыток: {last_error}"}
 
     if resp.status_code == 401:
         return {"error": "401: токен YTM отозван или без доступа 'ytm:read'"}

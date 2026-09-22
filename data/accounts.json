@@ -18,5 +18,28 @@
       "token_ref": "default"
     },
     "goals": {}
+  },
+  "printyard": {
+    "title": "printyard",
+    "direct": {
+      "mode": "token",
+      "client_login": null,
+      "client_id": null,
+      "token_ref": "printyard"
+    },
+    "metrica": {
+      "counter_ids": [
+        73028443,
+        106104483
+      ],
+      "ulogin": "anton.anima"
+    },
+    "ytm": {
+      "container_ids": [
+        1007795
+      ],
+      "token_ref": "default"
+    },
+    "goals": {}
   }
 }
