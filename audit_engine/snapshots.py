@@ -332,8 +332,8 @@ def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
         if micros:
             rollback = json.dumps({
                 "method": "update",
-                "params": {"Campaigns": [{"Id": campaign_id, block: {"PriorityGoals": [
-                    {"GoalId": int(g), "Value": int(v)} for g, v in micros.items()]}}]},
+                "params": {"Campaigns": [{"Id": campaign_id, block: {"PriorityGoals": {"Items": [
+                    {"GoalId": int(g), "Operation": "SET", "Value": int(v)} for g, v in micros.items()]}}}]},
             }, ensure_ascii=False)
         changes.append({
             "campaign_id": campaign_id,
