@@ -4,6 +4,8 @@ Vyvod rezul'tatov audita: markdown dlya chata, XLSX i chек-list na disk.
 
 import logging
 from datetime import datetime
+
+import access
 from pathlib import Path
 
 log = logging.getLogger("audit.report")
@@ -236,15 +238,17 @@ def render_economy(ctx) -> str:
         analytics_ids = ctx.data.get("analytics_goal_ids") or []
         if direct_ids:
             goal_names = ctx.data.get("goal_names") or {}
-            shown = ", ".join(goal_names.get(g) or str(g) for g in direct_ids[:8])
-            lines.append(f"**В Директе участвуют цели ({len(direct_ids)}):** {shown}.")
+            shown = "; ".join(access.label_goals(goal_names, direct_ids[:8]))
+            lines.append(f"**Цели, по которым Директ покупает результат "
+                         f"({len(direct_ids)}):** {shown}.")
             if analytics_ids:
                 lines.append(f"Остальные {len(analytics_ids)} целей счётчика — аналитика "
                              f"Метрики: в закупке и обучении алгоритмов не участвуют, "
                              f"поэтому в расчётах не используются.")
             lines.append("")
-        lines.append("Заявки считаются по **приоритетным целям** кампаний — то есть "
-                     "по обращениям, а не по микродействиям счётчика.")
+        lines.append("Заявки считаются по **целям кампаний** — целям стратегий и "
+                     "приоритетным целям, то есть по обращениям, а не по "
+                     "микродействиям счётчика.")
         lines.append("")
 
     # Разбивка по целям — есть только в глубоком режиме.

@@ -308,7 +308,7 @@ def fetch_stats_targeted(ctx):
     ctx.data["stats_targeted"] = result
     ctx.data["stats_targeted_goals"] = sorted(
         {int(g) for items in goals_by_campaign.values() for g in items})
-    ctx.note(f"Целевые заявки посчитаны по приоритетным целям: {len(result)} кампаний"
+    ctx.note(f"Целевые заявки посчитаны по целям кампаний: {len(result)} кампаний"
              + (f", ошибок запросов: {errors}" if errors else ""))
 
 
@@ -340,6 +340,19 @@ def fetch_metrica(ctx):
             ctx.add_error(f"metrica/goals/{cid}", goals["error"])
             continue
         ctx.data["goals"][cid] = (goals or {}).get("goals", [])
+
+    # Imena tselej: otchet i proverki pishut «Nazvanie (ID ...)», a ne nomera.
+    # Sobiraem zdes', a ne v tyazhelom fetchere: tot v obychnom rezhime ne
+    # zapuskaetsya, i v otchete ostavalis' odni ID.
+    names = {}
+    for goals in (ctx.data.get("goals") or {}).values():
+        for goal in goals or []:
+            try:
+                gid = int(goal.get("id"))
+            except (TypeError, ValueError):
+                continue
+            names[gid] = goal.get("name") or f"цель {gid}"
+    ctx.data["goal_names"] = names
 
 
 def fetch_ytm(ctx):
