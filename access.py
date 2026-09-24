@@ -542,6 +542,10 @@ def priority_goals_resolved(account: str | None = None,
         # inoe. Pustoj reestr rassozhdeniem ne schitaem: eto nevypolnennaya
         # zapis', a ne ustarevshie dannye, i rugat'sya za nee nekogo.
         if from_reg and from_api != from_reg:
+            # Kampaniyu v etom prohode voobsche ne chitali (audit tol'ko
+            # zapushchennyh): reestr molchit ne potomu, chto ustarel.
+            if strategies is not None and cid not in api_goals:
+                continue
             mismatch[cid] = {"api": from_api, "registry": from_reg}
 
     if api_goals and mismatch:
