@@ -51,6 +51,13 @@ def get_campaign_strategies(campaign_ids: list[int] = None,
     if data.get("error"):
         return data
 
+    # Tseli pokazyvayutsya s nazvaniyami: bez imen ID ne otvechayut na vopros
+    # «za chto platit kampaniya». Oshibka Metriki ne ronyaet strategii.
+    counters = []
+    for info in (data.get("campaigns") or {}).values():
+        counters.extend(info.get("counter_ids") or [])
+    names = access.goal_names(account, counters)
+
     rows = []
     for cid, info in sorted((data.get("campaigns") or {}).items()):
         channels = {}
@@ -61,15 +68,18 @@ def get_campaign_strategies(campaign_ids: list[int] = None,
                 "ограничение ставки ₽": scope_info.get("bid_ceiling"),
                 "средняя цена клика ₽": scope_info.get("average_cpc"),
                 "целевая цена конверсии ₽": scope_info.get("cpa"),
-                "цели": scope_info.get("goals"),
+                "цели": access.label_goals(names, scope_info.get("goals")),
             }
         rows.append({
             "id": cid,
             "название": info.get("name"),
             "состояние": info.get("state"),
             "каналы": channels,
-            "приоритетные цели": info.get("priority_goals"),
-            "цели стратегии": info.get("strategy_goals"),
+            "приоритетные цели": access.label_goals(names, info.get("priority_goals")),
+            "цели стратегии": {
+                scope: access.label_goals(names, goals)
+                for scope, goals in (info.get("strategy_goals") or {}).items()
+            },
             "модель атрибуции": info.get("attribution_model"),
             "счётчики Метрики": info.get("counter_ids"),
             "дневной бюджет ₽": info.get("daily_budget"),

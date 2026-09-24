@@ -271,7 +271,21 @@ def _rollback_strategy(campaign_id: int, block: str | None,
         ensure_ascii=False)
 
 
-def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
+def _goal_price_label(goal_names, goal_id, old_prices, new_prices) -> str:
+    """«Снята цена заявки: Название (ID 123)» — imya vmesto syrogo ID."""
+    gid = int(goal_id)
+    name = (goal_names or {}).get(gid) or f"цель {gid}"
+    if gid not in new_prices:
+        action = "Снята цена заявки"
+    elif gid not in old_prices:
+        action = "Назначена цена заявки"
+    else:
+        action = "Изменена цена заявки"
+    return f"{action}: {name} (ID {gid})"
+
+
+def _diff_strategy(before: dict, after: dict, campaign_id, name: str,
+                   goal_names: dict | None = None) -> list:
     """
     Что изменилось в стратегиях кампании: тип канала, лимиты, ставки и цели.
 
@@ -307,6 +321,9 @@ def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
             item = {"campaign_id": campaign_id, "campaign_name": name,
                     "field": f"{label} ({scope})", "severity": severity,
                     "before": old_value, "after": new_value}
+            if field == "goals":
+                item["before_named"] = access.label_goals(goal_names or {}, old_value)
+                item["after_named"] = access.label_goals(goal_names or {}, new_value)
             if field in ("weekly_limit", "goals"):
                 item["rollback"] = _rollback_strategy(campaign_id, block, scope,
                                                       old.get("raw"))
@@ -338,12 +355,14 @@ def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
         changes.append({
             "campaign_id": campaign_id,
             "campaign_name": name,
-            "field": f"цена цели {goal_id}",
+            "field": _goal_price_label(goal_names, goal_id, old_prices, new_prices),
+            "goal_id": int(goal_id),
+            "goal_name": (goal_names or {}).get(int(goal_id)) or f"цель {goal_id}",
             "before": old_prices.get(goal_id),
             "after": new_prices.get(goal_id),
             "severity": "warning",
-            "note": "Изменилась цена заявки в приоритетной цели: именно она "
-                    "управляет тем, за сколько кампания покупает результат",
+            "note": "Цена заявки для этой цели: потолок, за который кампания "
+                    "покупает результат",
             "rollback": rollback,
         })
 
@@ -353,16 +372,26 @@ def _diff_strategy(before: dict, after: dict, campaign_id, name: str) -> list:
         old_value, new_value = before.get(field), after.get(field)
         if old_value == new_value:
             continue
-        changes.append({
+        item = {
             "campaign_id": campaign_id, "campaign_name": name,
             "field": label, "severity": severity,
             "before": old_value, "after": new_value,
             "note": "Изменилась настройка кампании",
-        })
+        }
+        if field == "PriorityGoals":
+            item["before_named"] = access.label_goals(goal_names or {}, old_value)
+            item["after_named"] = access.label_goals(goal_names or {}, new_value)
+            if not new_value:
+                item["note"] = ("Приоритетные цели сняты: стратегия больше "
+                                "не выделяет ни одну цель")
+            elif not old_value:
+                item["note"] = "Приоритетные цели назначены"
+        changes.append(item)
     return changes
 
 
-def _diff_campaign(before: dict, after: dict) -> list:
+def _diff_campaign(before: dict, after: dict,
+                  goal_names: dict | None = None) -> list:
     changes = []
     campaign_id = after.get("Id")
     name = after.get("Name") or before.get("Name")
@@ -400,7 +429,7 @@ def _diff_campaign(before: dict, after: dict) -> list:
             "note": "Изменён список минус-фраз",
         })
 
-    changes.extend(_diff_strategy(before, after, campaign_id, name))
+    changes.extend(_diff_strategy(before, after, campaign_id, name, goal_names))
 
     for field, label in (("AdGroups", "групп"), ("Ads", "объявлений")):
         old, new = before.get(field), after.get(field)
@@ -439,10 +468,19 @@ def compare_snapshots(account: str, before_file: str | None = None,
     old_camps = before.get("campaigns") or {}
     new_camps = current.get("campaigns") or {}
 
+    # Nazvaniya tselej — chtoby v zhurnale izmenenij byli imena, a ne odni ID.
+    counters = []
+    for bucket in list(new_camps.values()) + list(old_camps.values()):
+        counters.extend(bucket.get("CounterIds") or [])
+    try:
+        goal_names = access.goal_names(account, counters)
+    except Exception:
+        goal_names = {}
+
     changes = []
     for cid, after in new_camps.items():
         if cid in old_camps:
-            changes.extend(_diff_campaign(old_camps[cid], after))
+            changes.extend(_diff_campaign(old_camps[cid], after, goal_names))
         else:
             changes.append({"campaign_id": after.get("Id"),
                             "campaign_name": after.get("Name"),

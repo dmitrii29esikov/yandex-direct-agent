@@ -579,6 +579,60 @@ def metrica_counter_ids(account: str | None = None) -> list:
     return list((acc.get("metrica") or {}).get("counter_ids") or [])
 
 
+def goal_names(account: str | None = None, counter_ids=None,
+               goal_ids=None) -> dict:
+    """
+    Nazvaniya tselej Metriki: {goal_id: name}.
+
+    Nuzhny vezde, gde pokazyvaem tseli: syrye ID bez imen chitat' nel'zya —
+    imenno nazvanie otvechaet na vopros «za chto kampaniya platit».
+    Schetchiki beryom iz kampanij (pole counter_ids); esli ne zadany —
+    vse schetchiki akkaunta. Oshibka lyubogo schetchika ne ronyaet ostatok.
+    """
+    counters = []
+    for value in counter_ids or []:
+        try:
+            counters.append(int(value))
+        except (TypeError, ValueError):
+            continue
+    if not counters:
+        counters = metrica_counter_ids(account)
+
+    names = {}
+    for counter_id in dict.fromkeys(counters):
+        data = metrica_get(account, f"/management/v1/counter/{counter_id}/goals")
+        if isinstance(data, dict) and data.get("error"):
+            continue
+        for g in data.get("goals") or []:
+            try:
+                gid = int(g.get("id"))
+            except (TypeError, ValueError):
+                continue
+            names[gid] = g.get("name") or f"цель {gid}"
+
+    if goal_ids:
+        wanted = set()
+        for value in goal_ids:
+            try:
+                wanted.add(int(value))
+            except (TypeError, ValueError):
+                continue
+        names = {gid: name for gid, name in names.items() if gid in wanted}
+    return names
+
+
+def label_goals(names: dict, goal_ids) -> list:
+    """Tsely dlya otveta: [«nazvanie (ID)», ...] — imya pered tsifroj."""
+    result = []
+    for value in goal_ids or []:
+        try:
+            gid = int(value)
+        except (TypeError, ValueError):
+            continue
+        result.append(f"{names.get(gid) or 'цель ' + str(gid)} (ID {gid})")
+    return result
+
+
 # --------------------------------------------------------------------------
 # opisanie dlya diagnostiki (bez tokenov!)
 # --------------------------------------------------------------------------
