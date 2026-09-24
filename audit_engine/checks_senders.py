@@ -208,7 +208,9 @@ def _strategy_info(strategies, campaign_id):
 
 
 def _campaign_meta(campaign):
-    return {"campaign_id": campaign.get("Id"), "campaign": campaign.get("Name")}
+    return {"object_type": "campaign",
+            "object_id": str(campaign.get("Id") or ""),
+            "object_name": campaign.get("Name") or ""}
 
 
 @register("CROSS.GOAL_SENDER", "cross", "warning",
@@ -312,9 +314,7 @@ def check_goal_senders(ctx):
                    "данные уходят в пустоту.",
             evidence={"события без цели": listed},
             fix="Создать цель с этим идентификатором или убрать отправку",
-            severity="info",
-            campaign_id=campaigns[0].get("Id"),
-            campaign=campaigns[0].get("Name")))
+            severity="info", **_campaign_meta(campaigns[0])))
 
     if stopped:
         listed = "; ".join(f"контейнер {cid} → {', '.join(names[:3])}"
@@ -327,6 +327,6 @@ def check_goal_senders(ctx):
             evidence={"остановленные контейнеры": listed},
             fix="Проверить, какие цели зависели от контейнера, и вернуть "
                 "отправку на сайте",
-            **{"campaign_id": first.get("Id"), "campaign": first.get("Name")}))
+            **_campaign_meta(first)))
 
     return findings
