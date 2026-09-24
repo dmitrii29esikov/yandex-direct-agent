@@ -182,6 +182,33 @@ def metrica_sites(account):
     return result
 
 
+def metrica_reaches(account, counter_id, goal_ids, days=30):
+    """Достижения целей за период: {goal_id: число}. Кэш 6 часов."""
+    key = f"metrica_reaches_{counter_id}_{days}"
+    cached = _cache_read(key)
+    result = dict(cached) if isinstance(cached, dict) else {}
+    missing = [g for g in goal_ids if str(g) not in result]
+    if not missing:
+        return result
+    try:
+        import access                                        # noqa: PLC0415
+        headers = access.metrica_headers(account)
+        metrics = ",".join(f"ym:s:goal{g}reaches" for g in missing[:20])
+        response = requests.get(
+            f"{access.METRICA_BASE}/stat/v1/data", headers=headers,
+            params={"ids": counter_id, "metrics": metrics,
+                    "date1": f"{days}daysAgo", "date2": "today",
+                    "accuracy": "full"}, timeout=60)
+        if response.status_code == 200:
+            totals = response.json().get("totals") or []
+            for goal, value in zip(missing, totals):
+                result[str(goal)] = int(value or 0)
+            _cache_write(key, result)
+    except Exception:                                        # noqa: BLE001
+        pass
+    return result
+
+
 # ------------------------------------------------------------------ проверка
 def _campaign_goal_ids(info):
     """Цели, на которых реально работает кампания: приоритетные, иначе цели
@@ -271,20 +298,41 @@ def check_goal_senders(ctx):
             elif in_ytm:
                 only_ytm.append(f"{identifier} (цель {goal_id})")
             elif not in_site and site_readable:
-                nowhere.append(f"{identifier} (цель {goal_id})")
+                nowhere.append((goal_id, identifier))
 
         meta_info = _campaign_meta(campaign)
         if nowhere:
-            findings.append(dict(
-                title="Цель назначена, но событие никто не отправляет",
-                detail="Проверено по опубликованной конфигурации ТМ и коду "
-                       "сайта: вызова с этим идентификатором нет ни там, ни там. "
-                       "Конверсий по цели не будет.",
-                evidence={"цели без отправителя": "; ".join(nowhere[:6]),
-                          "проверено": f"контейнеры {', '.join(counters)}, "
-                                       f"код сайта {len(site_parts)} источник(ов)"},
-                fix="Вернуть отправку на сайте или в теге ТМ",
-                severity="error", **meta_info))
+            reaches = {}
+            for counter in counters:
+                reaches.update(metrica_reaches(
+                    account, counter, [goal for goal, _ in nowhere]))
+            dead, unclear = [], []
+            for goal_id, identifier in nowhere:
+                text = f"{identifier} (цель {goal_id})"
+                (unclear if int(reaches.get(str(goal_id), 0)) > 0 else dead).append(text)
+            if dead:
+                findings.append(dict(
+                    title="Цель назначена, но событие никто не отправляет",
+                    detail="Вызова с этим идентификатором нет ни в коде сайта, "
+                           "ни в конфигурации ТМ, и по цели НЕТ достижений за "
+                           "30 дней. Конверсий не будет.",
+                    evidence={"цели без отправителя": "; ".join(dead[:6]),
+                              "проверено": f"контейнеры {', '.join(counters)}, "
+                                           f"код сайта {len(site_parts)} источник(ов), "
+                                           f"достижения за 30 дней: 0"},
+                    fix="Вернуть отправку на сайте или в теге ТМ",
+                    severity="error", **meta_info))
+            if unclear:
+                findings.append(dict(
+                    title="Отправитель цели вне проверенного кода",
+                    detail="Вызова в HTML и подключённых скриптах нет, но цель "
+                           "достигается — значит событие шлёт код, который не "
+                           "виден при чтении страницы (ленивый JS, сторонний "
+                           "сервис). Цель работает, отправитель не подтверждён.",
+                    evidence={"цель работает, отправитель не найден":
+                              "; ".join(unclear[:6])},
+                    fix="Уточнить отправителя в интерфейсе Метрики",
+                    severity="info", **meta_info))
         if only_ytm:
             findings.append(dict(
                 title="Цель отправляет только Тег Менеджер",
