@@ -310,24 +310,75 @@ def check_no_callouts(ctx):
 # --------------------------------------------------------------------------
 
 @register("DIRECT.NO_DAILY_BUDGET", "direct", "warning",
-          description="Нет дневного бюджета при ручном управлении")
+          description="Нет дневного бюджета при ручных ставках и без недельного лимита")
 def check_no_daily_budget(ctx):
+    """Флаг только там, где риск реальный: ручные ставки и отсутствие недельного
+    лимита. Автостратегия с недельным бюджетом сама распределяет расход по
+    неделе, для неё проверка бессмысленна. Без данных о стратегиях проверка
+    молчит — не выдаём флаг вслепую."""
     if not ctx.loaded('campaigns'):
+        return []
+    strategies = ctx.data.get("strategies") or {}
+    if not strategies:
         return []
     out = []
     for c in ctx.data.get("campaigns") or []:
         if c.get("State") == "ARCHIVED":
             continue
-        if not c.get("DailyBudget"):
-            out.append(dict(
-                title="Не задан дневной бюджет",
-                detail="Кампания может израсходовать весь недельный бюджет за день, "
-                       "после чего показы прекратятся",
-                evidence={"состояние": c.get("State"), "статус": c.get("Status")},
-                fix="Задать дневной бюджет и режим его распределения",
-                **_campaign_meta(c),
-            ))
+        if c.get("DailyBudget"):
+            continue
+        info = _strategy_info(strategies, c.get("Id"))
+        if _weekly_limit(info) or not _is_manual_strategy(info):
+            continue
+        out.append(dict(
+            title="Не задан дневной бюджет",
+            detail="Ручные ставки и нет недельного лимита: расход ничем не ограничен",
+            evidence={"состояние": c.get("State"), "статус": c.get("Status"),
+                      "стратегия ручная": True, "недельный лимит": 0},
+            fix="Задать дневной бюджет или недельный лимит в стратегии",
+            **_campaign_meta(c),
+        ))
     return out
+
+
+# Ручные стратегии: у них нет внутреннего распределения бюджета по неделе
+MANUAL_STRATEGY_TYPES = {
+    "AVERAGE_CPC", "AVERAGE_CPA", "MANUAL_CPC", "MANUAL_CPA",
+    "HIGHEST_POSITION", "HIGHEST_POSITION_MULTIPLE_GOALS",
+}
+
+
+def _strategy_info(strategies, campaign_id):
+    """Стратегии кампании в любой из форм ключа (int/str)."""
+    if not isinstance(strategies, dict):
+        return {}
+    info = strategies.get(campaign_id)
+    if info is None:
+        info = strategies.get(str(campaign_id))
+    return info if isinstance(info, dict) else {}
+
+
+def _weekly_limit(info):
+    """Недельный лимит кампании в микроединицах (0 = лимита нет)."""
+    values = []
+    top = info.get("weekly_limit") or info.get("weekly_limit_micros")
+    if top:
+        values.append(int(top))
+    for scope in (info.get("scopes") or {}).values():
+        if isinstance(scope, dict):
+            limit = scope.get("weekly_limit") or scope.get("weekly_limit_micros")
+            if limit:
+                values.append(int(limit))
+    return max(values) if values else 0
+
+
+def _is_manual_strategy(info):
+    """Только ручное управление ставками."""
+    for scope in (info.get("scopes") or {}).values():
+        if isinstance(scope, dict) and \
+                str(scope.get("type") or "") in MANUAL_STRATEGY_TYPES:
+            return True
+    return False
 
 
 def _economy(ctx, campaign) -> dict:

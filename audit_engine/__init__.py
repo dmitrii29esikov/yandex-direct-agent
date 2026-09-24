@@ -13,6 +13,7 @@ from . import checks_metrica  # noqa: F401
 from . import checks_ytm      # noqa: F401
 from . import checks_cross    # noqa: F401
 from . import checks_reports  # noqa: F401
+from . import checks_senders  # noqa: F401
 
 from .base import CHECKS, Diagnosis, Finding  # noqa: F401
 from .fixers import FIXERS, Action            # noqa: F401
